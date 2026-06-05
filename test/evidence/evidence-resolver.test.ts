@@ -60,7 +60,7 @@ describe("EvidenceResolver", () => {
     const rawHash = createRaw(store, "raw-1", "original proof");
     createDerived(store, "decision-1", "decision");
     createDerived(store, "summary-1", "summary");
-    store.createSummaryPayload({
+    store.insertSummaryPayload({
       node_id: "summary-1",
       text: "summary text is navigation only",
       source_node_count: 1,

@@ -241,7 +241,7 @@ export class GraphStore {
       );
   }
 
-  createSummaryPayload(input: SummaryPayload): void {
+  insertSummaryPayload(input: SummaryPayload): void {
     this.db
       .prepare(
         `INSERT INTO summary_payloads (
