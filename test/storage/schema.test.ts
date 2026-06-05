@@ -56,7 +56,17 @@ describe("SQLite graph schema", () => {
     expect(runSchemaDoctor(healthyDb)).toEqual({
       status: "healthy",
       missingTables: [],
-      fts: { available: true }
+      fts: { available: true },
+      graph: {
+        hasNodesTable: true,
+        hasEdgesTable: true
+      },
+      evidence: {
+        hasPacketsTable: true
+      },
+      config: {
+        defaultsLoaded: true
+      }
     });
 
     const incompleteDb = createDb();

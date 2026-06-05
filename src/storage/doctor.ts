@@ -8,6 +8,16 @@ export interface SchemaDoctorResult {
   fts: {
     available: boolean;
   };
+  graph: {
+    hasNodesTable: boolean;
+    hasEdgesTable: boolean;
+  };
+  evidence: {
+    hasPacketsTable: boolean;
+  };
+  config: {
+    defaultsLoaded: boolean;
+  };
 }
 
 export function runSchemaDoctor(db: SqliteDatabase): SchemaDoctorResult {
@@ -26,6 +36,16 @@ export function runSchemaDoctor(db: SqliteDatabase): SchemaDoctorResult {
     missingTables,
     fts: {
       available: fts
+    },
+    graph: {
+      hasNodesTable: existingTables.has("memory_nodes"),
+      hasEdgesTable: existingTables.has("memory_edges")
+    },
+    evidence: {
+      hasPacketsTable: existingTables.has("evidence_packets")
+    },
+    config: {
+      defaultsLoaded: true
     }
   };
 }

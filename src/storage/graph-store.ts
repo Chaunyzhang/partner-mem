@@ -119,6 +119,30 @@ export interface FtsNodeInput {
   text: string;
 }
 
+export interface FtsSearchRow {
+  node_id: string;
+  node_type: NodeType;
+  score: number;
+}
+
+export interface RawTimelineItem {
+  node: MemoryNode;
+  payload: RawPayload;
+}
+
+export interface RetrievalRunAuditInput {
+  run_id: string;
+  agent_id: string;
+  session_id?: string | null;
+  query?: string | null;
+  result_class: "candidate" | "evidence" | "status";
+  seed_count?: number;
+  evidence_count?: number;
+  blocked_count?: number;
+  created_at: string;
+  metadata_json?: string;
+}
+
 export interface EdgeFilter {
   edge_class?: EdgeClass;
   edge_type?: EdgeType;
@@ -126,6 +150,10 @@ export interface EdgeFilter {
 
 export class GraphStore {
   constructor(private readonly db: SqliteDatabase) {}
+
+  rawDb(): SqliteDatabase {
+    return this.db;
+  }
 
   transaction<T>(work: () => T): T {
     this.db.exec("BEGIN IMMEDIATE");
@@ -251,6 +279,114 @@ export class GraphStore {
       );
   }
 
+  insertRetrievalRun(input: RetrievalRunAuditInput): void {
+    this.db
+      .prepare(
+        `INSERT INTO retrieval_runs (
+          run_id, agent_id, session_id, query, result_class, seed_count,
+          evidence_count, blocked_count, created_at, metadata_json
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+      )
+      .run(
+        input.run_id,
+        input.agent_id,
+        input.session_id ?? null,
+        input.query ?? null,
+        input.result_class,
+        input.seed_count ?? 0,
+        input.evidence_count ?? 0,
+        input.blocked_count ?? 0,
+        input.created_at,
+        input.metadata_json ?? "{}"
+      );
+  }
+
+  searchFts(query: string, agentId: string, sessionId: string | undefined, limit: number): FtsSearchRow[] {
+    const sessionClause = sessionId ? "AND session_id = ?" : "";
+    const params: unknown[] = [escapeFtsQuery(query), agentId];
+    if (sessionId) params.push(sessionId);
+    params.push(limit);
+
+    return this.db
+      .prepare(
+        `SELECT node_id, node_type, rank AS score
+         FROM node_fts
+         WHERE node_fts MATCH ? AND agent_id = ? ${sessionClause}
+         ORDER BY rank
+         LIMIT ?`
+      )
+      .all(...params) as FtsSearchRow[];
+  }
+
+  listRawTimeline(input: {
+    agent_id: string;
+    session_id?: string;
+    since?: string;
+    until?: string;
+    limit: number;
+  }): RawTimelineItem[] {
+    const clauses = ["n.agent_id = ?", "n.node_type = 'raw_message'"];
+    const params: unknown[] = [input.agent_id];
+    if (input.session_id) {
+      clauses.push("n.session_id = ?");
+      params.push(input.session_id);
+    }
+    if (input.since) {
+      clauses.push("n.observed_at >= ?");
+      params.push(input.since);
+    }
+    if (input.until) {
+      clauses.push("n.observed_at <= ?");
+      params.push(input.until);
+    }
+    params.push(input.limit);
+
+    const rows = this.db
+      .prepare(
+        `SELECT
+          n.node_id, n.agent_id, n.session_id, n.node_type, n.status, n.created_at,
+          n.updated_at, n.observed_at, n.valid_from, n.valid_to, n.invalidated_at,
+          n.content_hash, n.metadata_json,
+          p.role, p.text, p.normalized_text, p.token_count, p.turn_id,
+          p.turn_index, p.message_index, p.source_hash
+        FROM memory_nodes n
+        JOIN raw_payloads p ON p.node_id = n.node_id
+        WHERE ${clauses.join(" AND ")}
+        ORDER BY n.observed_at, p.turn_index, p.message_index
+        LIMIT ?`
+      )
+      .all(...params) as Array<MemoryNode & RawPayload>;
+
+    return rows.map((row) => ({
+      node: {
+        node_id: row.node_id,
+        agent_id: row.agent_id,
+        session_id: row.session_id,
+        node_type: row.node_type,
+        status: row.status,
+        created_at: row.created_at,
+        updated_at: row.updated_at,
+        observed_at: row.observed_at,
+        valid_from: row.valid_from,
+        valid_to: row.valid_to,
+        invalidated_at: row.invalidated_at,
+        content_hash: row.content_hash,
+        metadata_json: row.metadata_json
+      },
+      payload: {
+        node_id: row.node_id,
+        role: row.role,
+        text: row.text,
+        normalized_text: row.normalized_text,
+        token_count: row.token_count,
+        turn_id: row.turn_id,
+        turn_index: row.turn_index,
+        message_index: row.message_index,
+        source_hash: row.source_hash
+      }
+    }));
+  }
+
   getNode(nodeId: string): MemoryNode | undefined {
     return this.db.prepare("SELECT * FROM memory_nodes WHERE node_id = ?").get(nodeId) as
       | MemoryNode
@@ -303,4 +439,12 @@ export class GraphStore {
       .prepare(`SELECT * FROM memory_edges WHERE ${clauses.join(" AND ")} ORDER BY created_at, edge_id`)
       .all(...params) as MemoryEdge[];
   }
+}
+
+function escapeFtsQuery(query: string): string {
+  return query
+    .split(/\s+/u)
+    .filter((term) => term.length > 0)
+    .map((term) => `"${term.replaceAll('"', '""')}"`)
+    .join(" ");
 }
