@@ -62,7 +62,9 @@ describe("SQLite graph schema", () => {
         hasEdgesTable: true
       },
       evidence: {
-        hasPacketsTable: true
+        hasPacketsTable: true,
+        badHashCount: 0,
+        missingRawPayloadCount: 0
       },
       config: {
         defaultsLoaded: true
