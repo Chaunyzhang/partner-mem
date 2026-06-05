@@ -54,6 +54,17 @@ export interface SummaryPayload {
   summary_hash: string;
 }
 
+export interface EvidencePacketAuditInput {
+  packet_id: string;
+  query_id?: string | null;
+  candidate_node_id?: string | null;
+  result_class?: "evidence" | "status";
+  evidence_count: number;
+  blocked_count: number;
+  created_at: string;
+  metadata_json?: string;
+}
+
 export interface CreateNodeInput {
   node_id: string;
   agent_id: string;
@@ -202,12 +213,42 @@ export class GraphStore {
       );
   }
 
+  createSummaryPayload(input: SummaryPayload): void {
+    this.db
+      .prepare(
+        `INSERT INTO summary_payloads (
+          node_id, text, source_node_count, summary_hash
+        ) VALUES (?, ?, ?, ?)`
+      )
+      .run(input.node_id, input.text, input.source_node_count, input.summary_hash);
+  }
+
   insertFtsNode(input: FtsNodeInput): void {
     this.db
       .prepare(
         "INSERT INTO node_fts(node_id, agent_id, session_id, node_type, text) VALUES (?, ?, ?, ?, ?)"
       )
       .run(input.node_id, input.agent_id, input.session_id ?? null, input.node_type, input.text);
+  }
+
+  insertEvidencePacketAudit(input: EvidencePacketAuditInput): void {
+    this.db
+      .prepare(
+        `INSERT INTO evidence_packets (
+          packet_id, query_id, candidate_node_id, result_class,
+          evidence_count, blocked_count, created_at, metadata_json
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
+      )
+      .run(
+        input.packet_id,
+        input.query_id ?? null,
+        input.candidate_node_id ?? null,
+        input.result_class ?? "evidence",
+        input.evidence_count,
+        input.blocked_count,
+        input.created_at,
+        input.metadata_json ?? "{}"
+      );
   }
 
   getNode(nodeId: string): MemoryNode | undefined {
