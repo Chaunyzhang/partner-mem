@@ -60,6 +60,15 @@ export type PathStatus = (typeof PATH_STATUSES)[number];
 export const RESULT_CLASSES = ["candidate", "evidence", "status"] as const;
 export type ResultClass = (typeof RESULT_CLASSES)[number];
 
+export const RAW_MESSAGE_ROLES = [
+  "user",
+  "assistant",
+  "system_visible",
+  "tool_visible"
+] as const;
+
+export type RawMessageRole = (typeof RAW_MESSAGE_ROLES)[number];
+
 function assertAllowedValue<T extends readonly string[]>(
   value: string,
   allowed: T,
@@ -98,4 +107,8 @@ export function assertPathStatus(value: string): PathStatus {
 
 export function assertResultClass(value: string): ResultClass {
   return assertAllowedValue(value, RESULT_CLASSES, "ResultClass");
+}
+
+export function assertRawMessageRole(value: string): RawMessageRole {
+  return assertAllowedValue(value, RAW_MESSAGE_ROLES, "RawMessageRole");
 }
