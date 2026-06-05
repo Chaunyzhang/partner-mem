@@ -67,7 +67,7 @@ export class EvidenceEdgeBuilder {
       .find((edge) => edge.edge_id === edgeId);
   }
 
-  private getTargetHash(nodeId: string, fallback: string): string {
-    return this.store.getRawPayload(nodeId)?.source_hash ?? fallback;
+  private getTargetHash(nodeId: string, nodeContentHash: string): string {
+    return this.store.getRawPayload(nodeId)?.source_hash ?? nodeContentHash;
   }
 }
