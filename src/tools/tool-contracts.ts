@@ -13,6 +13,14 @@ const resultClassValues = [
   "status"
 ] as const;
 
+const timeWindowSchema = {
+  type: "object",
+  properties: {
+    since: { type: "string" },
+    until: { type: "string" }
+  }
+} as const;
+
 export const toolSchemas = {
   partner_mem_search: {
     name: "partner_mem_search",
@@ -24,6 +32,7 @@ export const toolSchemas = {
         query: { type: "string" },
         agent_id: { type: "string" },
         session_id: { type: "string" },
+        time_window: timeWindowSchema,
         limit: { type: "integer", minimum: 1 }
       }
     }
@@ -38,6 +47,7 @@ export const toolSchemas = {
         query: { type: "string" },
         agent_id: { type: "string" },
         session_id: { type: "string" },
+        time_window: timeWindowSchema,
         limit: { type: "integer", minimum: 1 }
       }
     }

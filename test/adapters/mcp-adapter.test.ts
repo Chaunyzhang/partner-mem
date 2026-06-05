@@ -6,12 +6,19 @@ import { createInitializedStore } from "../helpers/db.js";
 
 describe("MCP adapter skeleton", () => {
   it("exposes the PR04 tool list with schemas", () => {
-    expect(createMcpToolList().map((tool) => tool.name)).toEqual([
+    const tools = createMcpToolList();
+    expect(tools.map((tool) => tool.name)).toEqual([
       "partner_mem_search",
       "partner_mem_recall",
       "partner_mem_timeline",
       "partner_mem_status"
     ]);
+    expect(
+      tools.find((tool) => tool.name === "partner_mem_search")?.inputSchema.properties
+    ).toHaveProperty("time_window");
+    expect(
+      tools.find((tool) => tool.name === "partner_mem_recall")?.inputSchema.properties
+    ).toHaveProperty("time_window");
   });
 
   it("routes tools/call style requests to ToolFacade", () => {
