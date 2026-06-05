@@ -25,7 +25,13 @@ export class SeedIndex {
 
   search(input: SearchQuery): CandidateRoute[] {
     if (input.query.trim().length === 0) return [];
-    const rows = this.store.searchFts(input.query, input.agent_id, input.session_id, input.limit);
+    const rows = this.store.searchFts(
+      input.query,
+      input.agent_id,
+      input.session_id,
+      input.time_window,
+      input.limit
+    );
     return rows.map((row) => toCandidateRoute(row));
   }
 }

@@ -301,18 +301,29 @@ export class GraphStore {
       );
   }
 
-  searchFts(query: string, agentId: string, sessionId: string | undefined, limit: number): FtsSearchRow[] {
-    const sessionClause = sessionId ? "AND session_id = ?" : "";
+  searchFts(
+    query: string,
+    agentId: string,
+    sessionId: string | undefined,
+    timeWindow: { since?: string; until?: string } | undefined,
+    limit: number
+  ): FtsSearchRow[] {
+    const sessionClause = sessionId ? "AND f.session_id = ?" : "";
+    const sinceClause = timeWindow?.since ? "AND n.observed_at >= ?" : "";
+    const untilClause = timeWindow?.until ? "AND n.observed_at <= ?" : "";
     const params: unknown[] = [escapeFtsQuery(query), agentId];
     if (sessionId) params.push(sessionId);
+    if (timeWindow?.since) params.push(timeWindow.since);
+    if (timeWindow?.until) params.push(timeWindow.until);
     params.push(limit);
 
     return this.db
       .prepare(
-        `SELECT node_id, node_type, rank AS score
-         FROM node_fts
-         WHERE node_fts MATCH ? AND agent_id = ? ${sessionClause}
-         ORDER BY rank
+        `SELECT f.node_id, f.node_type, f.rank AS score
+         FROM node_fts f
+         JOIN memory_nodes n ON n.node_id = f.node_id
+         WHERE node_fts MATCH ? AND f.agent_id = ? ${sessionClause} ${sinceClause} ${untilClause}
+         ORDER BY f.rank
          LIMIT ?`
       )
       .all(...params) as FtsSearchRow[];

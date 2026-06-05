@@ -32,6 +32,51 @@ describe("RecallRouter", () => {
     expect(store.countRows("retrieval_runs")).toBe(1);
   });
 
+  it("excludes out-of-window FTS seeds before resolving recall evidence", () => {
+    const store = createInitializedStore();
+    const service = new RawIngestService(store);
+    service.ingestTurn({
+      agent_id: "agent-1",
+      session_id: "session-1",
+      turn_id: "turn-1",
+      turn_index: 0,
+      messages: [
+        {
+          role: "user",
+          text: "windowed recall target old",
+          observed_at: "2026-01-01T00:00:00.000Z",
+          message_index: 0
+        }
+      ]
+    });
+    service.ingestTurn({
+      agent_id: "agent-1",
+      session_id: "session-1",
+      turn_id: "turn-2",
+      turn_index: 1,
+      messages: [
+        {
+          role: "user",
+          text: "windowed recall target new",
+          observed_at: "2026-02-01T00:00:00.000Z",
+          message_index: 0
+        }
+      ]
+    });
+
+    const packet = new RecallRouter(store).recall({
+      query: "windowed target",
+      agent_id: "agent-1",
+      time_window: {
+        since: "2026-01-15T00:00:00.000Z",
+        until: "2026-02-15T00:00:00.000Z"
+      },
+      limit: 5
+    });
+
+    expect(packet.evidence_items.map((item) => item.text)).toEqual(["windowed recall target new"]);
+  });
+
   it("returns candidate-only or blocked when an FTS entity seed has no valid evidence path", () => {
     const store = createInitializedStore();
     const contentHash = hashText("entity without proof");
