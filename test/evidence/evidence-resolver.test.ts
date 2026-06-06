@@ -107,6 +107,31 @@ describe("EvidenceResolver", () => {
     expect(packet.evidence_items.map((item) => item.text)).toEqual(["first", "second"]);
   });
 
+  it("does not traverse revision edges as raw-neighbor evidence", () => {
+    const store = createInitializedStore();
+    const oldHash = createRaw(store, "raw-old", "old plan", 0);
+    createRaw(store, "raw-new", "new plan", 1);
+    store.createEdge({
+      edge_id: "revision-correction",
+      agent_id: "agent-1",
+      from_node_id: "raw-new",
+      to_node_id: "raw-old",
+      edge_type: "correction",
+      edge_class: "semantic",
+      created_at: "2026-01-02T00:00:00.000Z",
+      target_hash: oldHash
+    });
+
+    const packet = new EvidenceResolver(store).resolveEvidence({
+      candidate_node_id: "raw-new",
+      include_raw_neighbors: true
+    });
+
+    expect(packet.evidence_items.map((item) => item.text)).toEqual(["new plan"]);
+    expect(packet.blocked_paths.map((path) => path.reason)).toContain("disallowed_edge_class");
+    expect(packet.blocked_paths.flatMap((path) => path.path.map((step) => step.edge_type))).toContain("correction");
+  });
+
   it("blocks semantic paths, hash mismatch, missing payloads, cycles, and non-raw terminals", () => {
     const store = createInitializedStore();
     const rawHash = createRaw(store, "raw-1", "raw");

@@ -20,6 +20,10 @@ describe("EvidencePacketBuilder", () => {
             valid_from: null,
             valid_to: null,
             invalidated_at: null,
+            topic_group: null,
+            sequence: null,
+            supersedes: null,
+            superseded_by: null,
             content_hash: sourceHash,
             metadata_json: "{}"
           },

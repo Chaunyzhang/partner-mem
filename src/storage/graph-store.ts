@@ -1,4 +1,12 @@
-import type { EdgeClass, EdgeType, NodeStatus, NodeType, RawMessageRole } from "../core/contracts.js";
+import {
+  isRevisionEdgeType,
+  type EdgeClass,
+  type EdgeType,
+  type NodeStatus,
+  type NodeType,
+  type RawMessageRole,
+  type RevisionEdgeType
+} from "../core/contracts.js";
 import type { SqliteDatabase } from "./schema.js";
 
 export interface MemoryNode {
@@ -13,6 +21,10 @@ export interface MemoryNode {
   valid_from: string | null;
   valid_to: string | null;
   invalidated_at: string | null;
+  topic_group: string | null;
+  sequence: number | null;
+  supersedes: string | null;
+  superseded_by: string | null;
   content_hash: string;
   metadata_json: string;
 }
@@ -77,6 +89,10 @@ export interface CreateNodeInput {
   valid_from?: string | null;
   valid_to?: string | null;
   invalidated_at?: string | null;
+  topic_group?: string | null;
+  sequence?: number | null;
+  supersedes?: string | null;
+  superseded_by?: string | null;
   content_hash: string;
   metadata_json?: string;
 }
@@ -130,6 +146,31 @@ export interface RawTimelineItem {
   payload: RawPayload;
 }
 
+export interface RawRevisionCandidate {
+  node: MemoryNode;
+  payload: RawPayload;
+}
+
+export interface RawRevisionStep {
+  raw_node_id: string;
+  role: RawMessageRole;
+  text: string;
+  observed_at: string | null;
+  sequence: number;
+  relation_to_previous: RevisionEdgeType | null;
+  supersedes: string | null;
+  superseded_by: string | null;
+}
+
+export interface RawRevisionContext {
+  topic_group: string;
+  sequence: number;
+  current_effective_raw_node_id: string;
+  current_effective_text: string;
+  is_current_effective: boolean;
+  chain: RawRevisionStep[];
+}
+
 export interface RetrievalRunAuditInput {
   run_id: string;
   agent_id: string;
@@ -172,8 +213,9 @@ export class GraphStore {
       .prepare(
         `INSERT INTO memory_nodes (
           node_id, agent_id, session_id, node_type, status, created_at, updated_at,
-          observed_at, valid_from, valid_to, invalidated_at, content_hash, metadata_json
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+          observed_at, valid_from, valid_to, invalidated_at, topic_group, sequence,
+          supersedes, superseded_by, content_hash, metadata_json
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
       )
       .run(
         input.node_id,
@@ -187,6 +229,10 @@ export class GraphStore {
         input.valid_from ?? null,
         input.valid_to ?? null,
         input.invalidated_at ?? null,
+        input.topic_group ?? null,
+        input.sequence ?? null,
+        input.supersedes ?? null,
+        input.superseded_by ?? null,
         input.content_hash,
         input.metadata_json ?? "{}"
       );
@@ -357,7 +403,7 @@ export class GraphStore {
         `SELECT
           n.node_id, n.agent_id, n.session_id, n.node_type, n.status, n.created_at,
           n.updated_at, n.observed_at, n.valid_from, n.valid_to, n.invalidated_at,
-          n.content_hash, n.metadata_json,
+          n.topic_group, n.sequence, n.supersedes, n.superseded_by, n.content_hash, n.metadata_json,
           p.role, p.text, p.normalized_text, p.token_count, p.turn_id,
           p.turn_index, p.message_index, p.source_hash
         FROM memory_nodes n
@@ -368,34 +414,108 @@ export class GraphStore {
       )
       .all(...params) as Array<MemoryNode & RawPayload>;
 
-    return rows.map((row) => ({
-      node: {
-        node_id: row.node_id,
-        agent_id: row.agent_id,
-        session_id: row.session_id,
-        node_type: row.node_type,
-        status: row.status,
-        created_at: row.created_at,
-        updated_at: row.updated_at,
-        observed_at: row.observed_at,
-        valid_from: row.valid_from,
-        valid_to: row.valid_to,
-        invalidated_at: row.invalidated_at,
-        content_hash: row.content_hash,
-        metadata_json: row.metadata_json
-      },
-      payload: {
-        node_id: row.node_id,
-        role: row.role,
-        text: row.text,
-        normalized_text: row.normalized_text,
-        token_count: row.token_count,
-        turn_id: row.turn_id,
-        turn_index: row.turn_index,
-        message_index: row.message_index,
-        source_hash: row.source_hash
-      }
+    return rows.map((row) => this.toRawTimelineItem(row));
+  }
+
+  nextTopicSequence(agentId: string, topicGroup: string): number {
+    const row = this.db
+      .prepare(
+        `SELECT COALESCE(MAX(sequence), 0) + 1 AS next_sequence
+         FROM memory_nodes
+         WHERE agent_id = ? AND node_type = 'raw_message' AND topic_group = ?`
+      )
+      .get(agentId, topicGroup) as { next_sequence: number };
+    return row.next_sequence;
+  }
+
+  getLatestRawRevisionCandidate(agentId: string, topicGroup: string): RawRevisionCandidate | undefined {
+    const row = this.db
+      .prepare(
+        `SELECT
+          n.node_id, n.agent_id, n.session_id, n.node_type, n.status, n.created_at,
+          n.updated_at, n.observed_at, n.valid_from, n.valid_to, n.invalidated_at,
+          n.topic_group, n.sequence, n.supersedes, n.superseded_by, n.content_hash, n.metadata_json,
+          p.role, p.text, p.normalized_text, p.token_count, p.turn_id,
+          p.turn_index, p.message_index, p.source_hash
+        FROM memory_nodes n
+        JOIN raw_payloads p ON p.node_id = n.node_id
+        WHERE n.agent_id = ? AND n.node_type = 'raw_message' AND n.topic_group = ?
+        ORDER BY n.sequence DESC, n.observed_at DESC, p.turn_index DESC, p.message_index DESC
+        LIMIT 1`
+      )
+      .get(agentId, topicGroup) as (MemoryNode & RawPayload) | undefined;
+
+    return row ? this.toRawTimelineItem(row) : undefined;
+  }
+
+  markNodeSuperseded(nodeId: string, supersededBy: string, updatedAt: string): void {
+    this.db
+      .prepare("UPDATE memory_nodes SET superseded_by = ?, updated_at = ? WHERE node_id = ?")
+      .run(supersededBy, updatedAt, nodeId);
+  }
+
+  getRawRevisionContext(nodeId: string): RawRevisionContext | undefined {
+    const node = this.getNode(nodeId);
+    if (!node?.topic_group || node.sequence === null) return undefined;
+
+    const rows = this.db
+      .prepare(
+        `SELECT
+          n.node_id AS raw_node_id, n.observed_at, n.sequence, n.supersedes, n.superseded_by,
+          p.role, p.text, e.edge_type AS relation_to_previous
+        FROM memory_nodes n
+        JOIN raw_payloads p ON p.node_id = n.node_id
+        LEFT JOIN memory_edges e
+          ON e.from_node_id = n.node_id
+          AND e.edge_class = 'semantic'
+          AND e.edge_type IN ('correction', 'extension', 'contradiction')
+        WHERE n.agent_id = ? AND n.node_type = 'raw_message' AND n.topic_group = ?
+        ORDER BY n.sequence, n.observed_at, p.turn_index, p.message_index`
+      )
+      .all(node.agent_id, node.topic_group) as Array<{
+      raw_node_id: string;
+      observed_at: string | null;
+      sequence: number;
+      supersedes: string | null;
+      superseded_by: string | null;
+      role: RawMessageRole;
+      text: string;
+      relation_to_previous: string | null;
+    }>;
+
+    const chain = rows.map((row): RawRevisionStep => ({
+      raw_node_id: row.raw_node_id,
+      role: row.role,
+      text: row.text,
+      observed_at: row.observed_at,
+      sequence: row.sequence,
+      relation_to_previous:
+        row.relation_to_previous && isRevisionEdgeType(row.relation_to_previous) ? row.relation_to_previous : null,
+      supersedes: row.supersedes,
+      superseded_by: row.superseded_by
     }));
+    const byId = new Map(chain.map((step) => [step.raw_node_id, step]));
+    let currentEffectiveRawNodeId = nodeId;
+    const seen = new Set<string>();
+
+    while (!seen.has(currentEffectiveRawNodeId)) {
+      seen.add(currentEffectiveRawNodeId);
+      const step = byId.get(currentEffectiveRawNodeId);
+      if (!step?.superseded_by) break;
+      currentEffectiveRawNodeId = step.superseded_by;
+    }
+
+    const current = byId.get(currentEffectiveRawNodeId) ?? byId.get(nodeId);
+    if (!current) return undefined;
+
+    return {
+      topic_group: node.topic_group,
+      sequence: node.sequence,
+      current_effective_raw_node_id: current.raw_node_id,
+      current_effective_text: current.text,
+      is_current_effective: current.raw_node_id === nodeId,
+      chain
+    };
   }
 
   getNode(nodeId: string): MemoryNode | undefined {
@@ -449,6 +569,41 @@ export class GraphStore {
     return this.db
       .prepare(`SELECT * FROM memory_edges WHERE ${clauses.join(" AND ")} ORDER BY created_at, edge_id`)
       .all(...params) as MemoryEdge[];
+  }
+
+  private toRawTimelineItem(row: MemoryNode & RawPayload): RawTimelineItem {
+    return {
+      node: {
+        node_id: row.node_id,
+        agent_id: row.agent_id,
+        session_id: row.session_id,
+        node_type: row.node_type,
+        status: row.status,
+        created_at: row.created_at,
+        updated_at: row.updated_at,
+        observed_at: row.observed_at,
+        valid_from: row.valid_from,
+        valid_to: row.valid_to,
+        invalidated_at: row.invalidated_at,
+        topic_group: row.topic_group,
+        sequence: row.sequence,
+        supersedes: row.supersedes,
+        superseded_by: row.superseded_by,
+        content_hash: row.content_hash,
+        metadata_json: row.metadata_json
+      },
+      payload: {
+        node_id: row.node_id,
+        role: row.role,
+        text: row.text,
+        normalized_text: row.normalized_text,
+        token_count: row.token_count,
+        turn_id: row.turn_id,
+        turn_index: row.turn_index,
+        message_index: row.message_index,
+        source_hash: row.source_hash
+      }
+    };
   }
 }
 
