@@ -9,6 +9,11 @@ import { RawIngestService } from "../../src/ingest/raw-ingest.js";
 import { GraphStore } from "../../src/storage/graph-store.js";
 import { initializeSchema, type SqliteDatabase } from "../../src/storage/schema.js";
 import { ToolFacade } from "../../src/tools/tool-facade.js";
+import {
+  createOpenClawCaptureState,
+  type OpenClawCaptureIdentity,
+  type OpenClawCaptureState
+} from "./capture-buffer.js";
 import { createOpenClawExtractorModelClient } from "./model-client.js";
 
 export interface PartnerMemOpenClawRuntime {
@@ -18,8 +23,8 @@ export interface PartnerMemOpenClawRuntime {
   facade: ToolFacade;
   contextAssembler: ContextAssembler;
   nextTurnIndex(sessionId: string): number;
-  hasSeenCapture(key: string): boolean;
-  markCaptureSeen(key: string): void;
+  getCaptureState(identity: OpenClawCaptureIdentity): OpenClawCaptureState;
+  getStoredCursor(identity: OpenClawCaptureIdentity): number | undefined;
   enqueueExtraction(rawNodeIds: string[]): void;
   drainExtractionQueueForTests(): Promise<void>;
   stop(): void;
@@ -45,7 +50,7 @@ export function createPartnerMemOpenClawRuntime(
   const extractor = new ExtractorService(store, createOpenClawExtractorModelClient(api, config));
   const extractionQueue: string[] = [];
   const turnIndexes = new Map<string, number>();
-  const seenCaptureKeys = new Set<string>();
+  const captureStates = new Map<string, OpenClawCaptureState>();
   let draining: Promise<void> | undefined;
   let stopped = false;
 
@@ -104,11 +109,17 @@ export function createPartnerMemOpenClawRuntime(
       turnIndexes.set(sessionId, next + 1);
       return next;
     },
-    hasSeenCapture(key: string) {
-      return seenCaptureKeys.has(key);
+    getCaptureState(identity: OpenClawCaptureIdentity) {
+      const key = captureStateKey(identity);
+      let state = captureStates.get(key);
+      if (!state) {
+        state = createOpenClawCaptureState();
+        captureStates.set(key, state);
+      }
+      return state;
     },
-    markCaptureSeen(key: string) {
-      seenCaptureKeys.add(key);
+    getStoredCursor(identity: OpenClawCaptureIdentity) {
+      return store.getMaxRawMessageIndex(identity);
     },
     enqueueExtraction(rawNodeIds: string[]) {
       if (!config.extractor.enabled || stopped) return;
@@ -135,4 +146,8 @@ export function createPartnerMemOpenClawRuntime(
       db.close?.();
     }
   };
+}
+
+function captureStateKey(identity: OpenClawCaptureIdentity): string {
+  return `${identity.agent_id}\0${identity.session_id}`;
 }

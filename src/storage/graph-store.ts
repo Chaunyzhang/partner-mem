@@ -378,34 +378,59 @@ export class GraphStore {
       )
       .all(...params) as Array<MemoryNode & RawPayload>;
 
-    return rows.map((row) => ({
-      node: {
-        node_id: row.node_id,
-        agent_id: row.agent_id,
-        session_id: row.session_id,
-        node_type: row.node_type,
-        status: row.status,
-        created_at: row.created_at,
-        updated_at: row.updated_at,
-        observed_at: row.observed_at,
-        valid_from: row.valid_from,
-        valid_to: row.valid_to,
-        invalidated_at: row.invalidated_at,
-        content_hash: row.content_hash,
-        metadata_json: row.metadata_json
-      },
-      payload: {
-        node_id: row.node_id,
-        role: row.role,
-        text: row.text,
-        normalized_text: row.normalized_text,
-        token_count: row.token_count,
-        turn_id: row.turn_id,
-        turn_index: row.turn_index,
-        message_index: row.message_index,
-        source_hash: row.source_hash
-      }
-    }));
+    return rows.map(mapRawTimelineRow);
+  }
+
+  getMaxRawMessageIndex(input: { agent_id: string; session_id: string }): number | undefined {
+    const row = this.db
+      .prepare(
+        `SELECT MAX(p.message_index) AS message_index
+         FROM memory_nodes n
+         JOIN raw_payloads p ON p.node_id = n.node_id
+         WHERE n.agent_id = ?
+           AND n.session_id = ?
+           AND n.node_type = 'raw_message'`
+      )
+      .get(input.agent_id, input.session_id) as { message_index: number | null } | undefined;
+
+    return typeof row?.message_index === "number" ? row.message_index : undefined;
+  }
+
+  getLatestRawTimelineItemBefore(input: {
+    agent_id: string;
+    session_id: string;
+    turn_index: number;
+    message_index: number;
+  }): RawTimelineItem | undefined {
+    const row = this.db
+      .prepare(
+        `SELECT
+          n.node_id, n.agent_id, n.session_id, n.node_type, n.status, n.created_at,
+          n.updated_at, n.observed_at, n.valid_from, n.valid_to, n.invalidated_at,
+          n.content_hash, n.metadata_json,
+          p.role, p.text, p.normalized_text, p.token_count, p.turn_id,
+          p.turn_index, p.message_index, p.source_hash
+         FROM memory_nodes n
+         JOIN raw_payloads p ON p.node_id = n.node_id
+         WHERE n.agent_id = ?
+           AND n.session_id = ?
+           AND n.node_type = 'raw_message'
+           AND (
+            p.turn_index < ?
+            OR (p.turn_index = ? AND p.message_index < ?)
+           )
+         ORDER BY p.turn_index DESC, p.message_index DESC, n.observed_at DESC
+         LIMIT 1`
+      )
+      .get(
+        input.agent_id,
+        input.session_id,
+        input.turn_index,
+        input.turn_index,
+        input.message_index
+      ) as (MemoryNode & RawPayload) | undefined;
+
+    return row ? mapRawTimelineRow(row) : undefined;
   }
 
   getNode(nodeId: string): MemoryNode | undefined {
@@ -460,4 +485,35 @@ export class GraphStore {
       .prepare(`SELECT * FROM memory_edges WHERE ${clauses.join(" AND ")} ORDER BY created_at, edge_id`)
       .all(...params) as MemoryEdge[];
   }
+}
+
+function mapRawTimelineRow(row: MemoryNode & RawPayload): RawTimelineItem {
+  return {
+    node: {
+      node_id: row.node_id,
+      agent_id: row.agent_id,
+      session_id: row.session_id,
+      node_type: row.node_type,
+      status: row.status,
+      created_at: row.created_at,
+      updated_at: row.updated_at,
+      observed_at: row.observed_at,
+      valid_from: row.valid_from,
+      valid_to: row.valid_to,
+      invalidated_at: row.invalidated_at,
+      content_hash: row.content_hash,
+      metadata_json: row.metadata_json
+    },
+    payload: {
+      node_id: row.node_id,
+      role: row.role,
+      text: row.text,
+      normalized_text: row.normalized_text,
+      token_count: row.token_count,
+      turn_id: row.turn_id,
+      turn_index: row.turn_index,
+      message_index: row.message_index,
+      source_hash: row.source_hash
+    }
+  };
 }

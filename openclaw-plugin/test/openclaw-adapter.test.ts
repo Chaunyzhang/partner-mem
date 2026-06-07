@@ -3,23 +3,25 @@ import { DEFAULT_PARTNER_MEM_OPENCLAW_CONFIG } from "../src/config.js";
 import {
   extractOpenClawVisibleMessages,
   formatContextBlockForOpenClaw,
-  normalizeHostTurn,
-  normalizeOpenClawTurn,
-  selectCapturableMessages
+  normalizeHostTurn
 } from "../src/openclaw-adapter.js";
 
 describe("OpenClaw adapter", () => {
-  it("extracts string content exactly and maps only visible user/assistant roles", () => {
+  it("reads roles from message.role without guessing from position", () => {
     const messages = extractOpenClawVisibleMessages([
-      { role: "system", content: "hidden system" },
+      { role: "assistant", content: "assistant can be first" },
       { role: "user", content: "  exact user text  " },
-      { role: "assistant", text: "exact assistant text" },
-      { role: "tool", content: "tool output" }
+      { content: "missing role must not become assistant by position" },
+      { role: "assistant", text: "assistant can follow user" },
+      { role: "tool", content: "tool output" },
+      { role: "user", content: "final user stays user" }
     ]);
 
     expect(messages.map((message) => [message.role, message.text])).toEqual([
+      ["assistant", "assistant can be first"],
       ["user", "  exact user text  "],
-      ["assistant", "exact assistant text"]
+      ["assistant", "assistant can follow user"],
+      ["user", "final user stays user"]
     ]);
   });
 
@@ -91,57 +93,27 @@ describe("OpenClaw adapter", () => {
     ]);
   });
 
-  it("produces an OpenClaw host envelope and core normalization preserves exact text", () => {
-    const envelope = normalizeOpenClawTurn(
-      {
-        runId: "run-1",
-        messages: [{ role: "user", content: "OpenClaw exact raw text" }]
-      },
-      { agentId: "agent-1", sessionKey: "session-1" },
-      {
-        config: DEFAULT_PARTNER_MEM_OPENCLAW_CONFIG,
-        nextTurnIndex: () => 7
-      }
-    );
+  it("core normalization preserves exact OpenClaw text", () => {
+    const envelope = {
+      host: "openclaw" as const,
+      agent_id: "agent-1",
+      session_id: "session-1",
+      turn_id: "turn-1",
+      turn_index: 7,
+      messages: extractOpenClawVisibleMessages([
+        { role: "user", content: "OpenClaw exact raw text" }
+      ])
+    };
 
-    expect(envelope?.host).toBe("openclaw");
-    expect(envelope?.turn_id).toBe("run-1");
-    expect(envelope?.turn_index).toBe(7);
-    expect(normalizeHostTurn(envelope!).messages[0]?.text).toBe("OpenClaw exact raw text");
+    expect(normalizeHostTurn(envelope).messages[0]?.text).toBe("OpenClaw exact raw text");
   });
 
-  it("stops at complete message boundaries for char and count limits", () => {
-    const messages = extractOpenClawVisibleMessages([
-      { role: "user", content: "first" },
-      { role: "assistant", content: "second" },
-      { role: "user", content: "third" }
-    ]);
-
-    expect(
-      selectCapturableMessages(messages, {
-        ...DEFAULT_PARTNER_MEM_OPENCLAW_CONFIG,
-        captureMaxCompleteMessages: 2
-      }).map((message) => message.text)
-    ).toEqual(["second", "third"]);
-    expect(
-      selectCapturableMessages(messages, {
-        ...DEFAULT_PARTNER_MEM_OPENCLAW_CONFIG,
-        captureMaxCharsPerTurn: 11
-      }).map((message) => message.text)
-    ).toEqual(["second", "third"]);
-  });
-
-  it("skips a long single message without slicing it", () => {
+  it("extracts an oversized message as a whole so capture can skip it without slicing", () => {
     const longText = "x".repeat(1001);
-    const selected = selectCapturableMessages(
-      extractOpenClawVisibleMessages([{ role: "user", content: longText }]),
-      {
-        ...DEFAULT_PARTNER_MEM_OPENCLAW_CONFIG,
-        captureMaxCharsPerTurn: 1000
-      }
-    );
+    const [message] = extractOpenClawVisibleMessages([{ role: "user", content: longText }]);
 
-    expect(selected).toEqual([]);
+    expect(message?.text).toBe(longText);
+    expect(DEFAULT_PARTNER_MEM_OPENCLAW_CONFIG.captureMaxCharsPerMessage).toBe(200000);
   });
 
   it("does not format empty context into prompt injection", () => {

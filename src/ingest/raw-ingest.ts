@@ -96,6 +96,30 @@ export class RawIngestService {
         );
       }
 
+      const firstNodeId = raw_node_ids[0];
+      const firstMessage = input.messages[0];
+      if (firstNodeId && firstMessage) {
+        const previous = this.store.getLatestRawTimelineItemBefore({
+          agent_id: input.agent_id,
+          session_id: input.session_id,
+          turn_index: input.turn_index,
+          message_index: firstMessage.message_index
+        });
+        if (previous) {
+          this.store.createEdge({
+            edge_id: randomUUID(),
+            agent_id: input.agent_id,
+            from_node_id: firstNodeId,
+            to_node_id: previous.node.node_id,
+            edge_type: "FOLLOWS",
+            edge_class: "temporal",
+            created_at: new Date().toISOString(),
+            observed_at: firstMessage.observed_at,
+            target_hash: previous.payload.source_hash
+          });
+        }
+      }
+
       return { raw_node_ids, raw_near_raw_edge_ids };
     });
   }

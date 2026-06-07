@@ -37,15 +37,20 @@
         "minimum": 1,
         "maximum": 50
       },
-      "captureMaxCharsPerTurn": {
+      "captureFlushMaxTokens": {
         "type": "integer",
-        "minimum": 1000,
+        "minimum": 1,
         "maximum": 200000
       },
-      "captureMaxCompleteMessages": {
+      "captureFlushMaxTurns": {
         "type": "integer",
         "minimum": 1,
         "maximum": 100
+      },
+      "captureMaxCharsPerMessage": {
+        "type": "integer",
+        "minimum": 1000,
+        "maximum": 1000000
       },
       "hookTimeoutMs": {
         "type": "integer",

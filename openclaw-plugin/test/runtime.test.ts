@@ -19,21 +19,27 @@ describe("Partner-Mem OpenClaw runtime and config", () => {
       autoRecall: false,
       contextBudgetTokens: 2000,
       recallLimit: 6,
-      captureMaxCharsPerTurn: 30000,
-      captureMaxCompleteMessages: 12,
+      captureFlushMaxTokens: 30000,
+      captureFlushMaxTurns: 12,
+      captureMaxCharsPerMessage: 300000,
       hookTimeoutMs: 500
     });
     const coreConfig = createPartnerMemCoreConfig(config);
 
     expect(config.autoCapture).toBe(false);
     expect(config.recallLimit).toBe(6);
+    expect(config.captureFlushMaxTokens).toBe(30000);
+    expect(config.captureFlushMaxTurns).toBe(12);
+    expect(config.captureMaxCharsPerMessage).toBe(300000);
     expect(coreConfig.context.autoRecallEnabled).toBe(true);
     expect(coreConfig.summary.autoBuildEnabled).toBe(false);
   });
 
   it("rejects invalid numeric config values", () => {
     expect(() => readPartnerMemOpenClawConfig({ hookTimeoutMs: 999999 })).toThrow(TypeError);
-    expect(() => readPartnerMemOpenClawConfig({ captureMaxCompleteMessages: 0 })).toThrow(TypeError);
+    expect(() => readPartnerMemOpenClawConfig({ captureFlushMaxTokens: 0 })).toThrow(TypeError);
+    expect(() => readPartnerMemOpenClawConfig({ captureFlushMaxTurns: 101 })).toThrow(TypeError);
+    expect(() => readPartnerMemOpenClawConfig({ captureMaxCharsPerMessage: 999 })).toThrow(TypeError);
   });
 
   it("initializes an on-disk database and status does not expose the path", () => {

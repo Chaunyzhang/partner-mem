@@ -41,8 +41,8 @@ describe("Partner-Mem OpenClaw hooks", () => {
         runId: "run-1",
         success: true,
         messages: [
-          { role: "user", content: "Partner-Mem hook capture exact user text." },
-          { role: "assistant", content: "Partner-Mem hook capture exact assistant text." }
+          { role: "user", content: "Partner-Mem hook capture exact user text.", message_index: 0 },
+          { role: "assistant", content: "Partner-Mem hook capture exact assistant text.", message_index: 1 }
         ]
       };
 
@@ -62,6 +62,190 @@ describe("Partner-Mem OpenClaw hooks", () => {
         "Partner-Mem hook capture exact assistant text."
       ]);
     } finally {
+      cleanupRuntime(runtime);
+    }
+  });
+
+  it("uses message_index cursor instead of runId when OpenClaw emits overlapping full history", () => {
+    const runtime = createTempRuntime();
+    try {
+      captureAgentEnd(
+        {
+          runId: "run-1",
+          success: true,
+          messages: [
+            { role: "user", content: "cursor first user", message_index: 0 },
+            { role: "assistant", content: "cursor first assistant", message_index: 1 }
+          ]
+        },
+        { agentId: "agent-1", sessionKey: "session-1" },
+        runtime
+      );
+      captureAgentEnd(
+        {
+          runId: "run-2",
+          success: true,
+          messages: [
+            { role: "user", content: "cursor first user", message_index: 0 },
+            { role: "assistant", content: "cursor first assistant", message_index: 1 },
+            { role: "user", content: "cursor second user", message_index: 2 },
+            { role: "assistant", content: "cursor second assistant", message_index: 3 }
+          ]
+        },
+        { agentId: "agent-1", sessionKey: "session-1" },
+        runtime
+      );
+
+      expect(timelineTexts(runtime, "agent-1", "session-1")).toEqual([
+        "cursor first user",
+        "cursor first assistant",
+        "cursor second user",
+        "cursor second assistant"
+      ]);
+    } finally {
+      cleanupRuntime(runtime);
+    }
+  });
+
+  it("buffers complete turns until captureFlushMaxTurns is reached", () => {
+    const runtime = createTempRuntime({ captureFlushMaxTurns: 2 });
+    try {
+      captureAgentEnd(
+        {
+          runId: "run-1",
+          success: true,
+          messages: [
+            { role: "user", content: "first buffered user", message_index: 0 },
+            { role: "assistant", content: "first buffered assistant", message_index: 1 }
+          ]
+        },
+        { agentId: "agent-1", sessionKey: "session-1" },
+        runtime
+      );
+
+      expect(timelineTexts(runtime, "agent-1", "session-1")).toEqual([]);
+
+      captureAgentEnd(
+        {
+          runId: "run-2",
+          success: true,
+          messages: [
+            { role: "user", content: "first buffered user", message_index: 0 },
+            { role: "assistant", content: "first buffered assistant", message_index: 1 },
+            { role: "user", content: "second buffered user", message_index: 2 },
+            { role: "assistant", content: "second buffered assistant", message_index: 3 }
+          ]
+        },
+        { agentId: "agent-1", sessionKey: "session-1" },
+        runtime
+      );
+
+      expect(timelineTexts(runtime, "agent-1", "session-1")).toEqual([
+        "first buffered user",
+        "first buffered assistant",
+        "second buffered user",
+        "second buffered assistant"
+      ]);
+    } finally {
+      cleanupRuntime(runtime);
+    }
+  });
+
+  it("flushes one oversized complete turn as a whole pair when captureFlushMaxTokens is reached", () => {
+    const runtime = createTempRuntime({ captureFlushMaxTokens: 10, captureFlushMaxTurns: 7 });
+    try {
+      captureAgentEnd(
+        {
+          runId: "run-1",
+          success: true,
+          messages: [
+            { role: "user", content: "long token threshold user", message_index: 0 },
+            { role: "assistant", content: "long token threshold assistant", message_index: 1 }
+          ]
+        },
+        { agentId: "agent-1", sessionKey: "session-1" },
+        runtime
+      );
+
+      expect(timelineTexts(runtime, "agent-1", "session-1")).toEqual([
+        "long token threshold user",
+        "long token threshold assistant"
+      ]);
+    } finally {
+      cleanupRuntime(runtime);
+    }
+  });
+
+  it("keeps a trailing user-only incomplete turn pending until the assistant reply appears", () => {
+    const runtime = createTempRuntime();
+    try {
+      captureAgentEnd(
+        {
+          runId: "run-1",
+          success: true,
+          messages: [{ role: "user", content: "pending user only", message_index: 0 }]
+        },
+        { agentId: "agent-1", sessionKey: "session-1" },
+        runtime
+      );
+
+      expect(timelineTexts(runtime, "agent-1", "session-1")).toEqual([]);
+
+      captureAgentEnd(
+        {
+          runId: "run-2",
+          success: true,
+          messages: [
+            { role: "user", content: "pending user only", message_index: 0 },
+            { role: "assistant", content: "pending assistant reply", message_index: 1 }
+          ]
+        },
+        { agentId: "agent-1", sessionKey: "session-1" },
+        runtime
+      );
+
+      expect(timelineTexts(runtime, "agent-1", "session-1")).toEqual([
+        "pending user only",
+        "pending assistant reply"
+      ]);
+    } finally {
+      cleanupRuntime(runtime);
+    }
+  });
+
+  it("persists neighboring Q/A rounds as separate RawTurnInput calls", () => {
+    const runtime = createTempRuntime({ captureFlushMaxTurns: 2 });
+    const originalIngest = runtime.ingest.ingestTurn;
+    const calls: Parameters<typeof runtime.ingest.ingestTurn>[0][] = [];
+    runtime.ingest.ingestTurn = (input) => {
+      calls.push(input);
+      return originalIngest.call(runtime.ingest, input);
+    };
+
+    try {
+      captureAgentEnd(
+        {
+          runId: "run-1",
+          success: true,
+          messages: [
+            { role: "user", content: "round one user", message_index: 0 },
+            { role: "assistant", content: "round one assistant", message_index: 1 },
+            { role: "user", content: "round two user", message_index: 2 },
+            { role: "assistant", content: "round two assistant", message_index: 3 }
+          ]
+        },
+        { agentId: "agent-1", sessionKey: "session-1" },
+        runtime
+      );
+
+      expect(calls).toHaveLength(2);
+      expect(calls.map((call) => call.messages.map((message) => message.text))).toEqual([
+        ["round one user", "round one assistant"],
+        ["round two user", "round two assistant"]
+      ]);
+      expect(new Set(calls.map((call) => call.turn_id)).size).toBe(2);
+    } finally {
+      runtime.ingest.ingestTurn = originalIngest;
       cleanupRuntime(runtime);
     }
   });
@@ -103,14 +287,17 @@ describe("Partner-Mem OpenClaw hooks", () => {
         {
           runId: "run-1",
           success: true,
-          messages: [{ role: "user", content: "Extract this captured raw message." }]
+          messages: [
+            { role: "user", content: "Extract this captured raw message.", message_index: 0 },
+            { role: "assistant", content: "Extraction queue assistant reply.", message_index: 1 }
+          ]
         },
         { agentId: "agent-1", sessionKey: "session-1" },
         runtime
       );
       await runtime.drainExtractionQueueForTests();
 
-      expect(calls).toHaveLength(1);
+      expect(calls).toHaveLength(2);
     } finally {
       cleanupRuntime(runtime);
     }
@@ -181,7 +368,10 @@ describe("Partner-Mem OpenClaw hooks", () => {
         {
           runId: "run-1",
           success: true,
-          messages: [{ role: "user", content: "Capture without extraction." }]
+          messages: [
+            { role: "user", content: "Capture without extraction.", message_index: 0 },
+            { role: "assistant", content: "Capture without extraction reply.", message_index: 1 }
+          ]
         },
         { agentId: "agent-1", sessionKey: "session-1" },
         runtime
@@ -225,7 +415,10 @@ describe("Partner-Mem OpenClaw hooks", () => {
         {
           runId: "run-1",
           success: true,
-          messages: [{ role: "user", content: "Raw capture survives extraction failure." }]
+          messages: [
+            { role: "user", content: "Raw capture survives extraction failure.", message_index: 0 },
+            { role: "assistant", content: "Raw capture failure reply is still stored.", message_index: 1 }
+          ]
         },
         { agentId: "agent-1", sessionKey: "session-1" },
         runtime
@@ -271,7 +464,10 @@ describe("Partner-Mem OpenClaw hooks", () => {
         {
           runId: "run-1",
           success: true,
-          messages: [{ role: "user", content: "Partner-Mem recall hook exact raw text." }]
+          messages: [
+            { role: "user", content: "Partner-Mem recall hook exact raw text.", message_index: 0 },
+            { role: "assistant", content: "Partner-Mem recall hook exact assistant text.", message_index: 1 }
+          ]
         },
         { agentId: "agent-1", sessionKey: "session-1" },
         runtime
@@ -304,7 +500,10 @@ describe("Partner-Mem OpenClaw hooks", () => {
         {
           runId: "run-1",
           success: true,
-          messages: [{ role: "user", content: "alpha cache evidence" }]
+          messages: [
+            { role: "user", content: "alpha cache evidence", message_index: 0 },
+            { role: "assistant", content: "alpha cache reply", message_index: 1 }
+          ]
         },
         { agentId: "agent-1", sessionKey: "session-1" },
         runtime
@@ -313,7 +512,10 @@ describe("Partner-Mem OpenClaw hooks", () => {
         {
           runId: "run-2",
           success: true,
-          messages: [{ role: "user", content: "beta cache evidence" }]
+          messages: [
+            { role: "user", content: "beta cache evidence", message_index: 2 },
+            { role: "assistant", content: "beta cache reply", message_index: 3 }
+          ]
         },
         { agentId: "agent-1", sessionKey: "session-1" },
         runtime
@@ -356,7 +558,10 @@ describe("Partner-Mem OpenClaw hooks", () => {
         {
           runId: "run-1",
           success: true,
-          messages: [{ role: "user", content: "Visible memory that must not enter extraction prompt." }]
+          messages: [
+            { role: "user", content: "Visible memory that must not enter extraction prompt.", message_index: 0 },
+            { role: "assistant", content: "Visible assistant memory that must not enter extraction prompt.", message_index: 1 }
+          ]
         },
         { agentId: "agent-1", sessionKey: "session-1" },
         runtime
@@ -390,7 +595,10 @@ describe("Partner-Mem OpenClaw hooks", () => {
         {
           runId: "run-1",
           success: true,
-          messages: [{ role: "user", content: "密码：柚子茶8842" }]
+          messages: [
+            { role: "user", content: "密码：柚子茶8842", message_index: 0 },
+            { role: "assistant", content: "我记住了。", message_index: 1 }
+          ]
         },
         { agentId: "agent-1", sessionKey: "old-session" },
         runtime
@@ -444,7 +652,10 @@ describe("Partner-Mem OpenClaw hooks", () => {
           {
             runId: "run-1",
             success: true,
-            messages: [{ role: "user", content: "capture failure input" }]
+            messages: [
+              { role: "user", content: "capture failure input", message_index: 0 },
+              { role: "assistant", content: "capture failure reply", message_index: 1 }
+            ]
           },
           { agentId: "agent-1", sessionKey: "session-1" },
           runtime
@@ -458,14 +669,17 @@ describe("Partner-Mem OpenClaw hooks", () => {
   });
 
   it("skips a long message instead of slicing it", () => {
-    const runtime = createTempRuntime({ captureMaxCharsPerTurn: 1000 });
+    const runtime = createTempRuntime({ captureMaxCharsPerMessage: 1000 });
     const longText = "x".repeat(1001);
     try {
       captureAgentEnd(
         {
           runId: "run-1",
           success: true,
-          messages: [{ role: "user", content: longText }]
+          messages: [
+            { role: "user", content: longText, message_index: 0 },
+            { role: "assistant", content: "short assistant after oversized user", message_index: 1 }
+          ]
         },
         { agentId: "agent-1", sessionKey: "session-1" },
         runtime
@@ -508,7 +722,7 @@ function createTempRuntime(
       on: () => undefined,
       logger: logger ?? {}
     },
-    readPartnerMemOpenClawConfig({ ...configOverrides, dbPath })
+    readPartnerMemOpenClawConfig({ captureFlushMaxTurns: 1, ...configOverrides, dbPath })
   );
   return Object.assign(runtime, { __tempDir: tempDir, __dbPath: dbPath });
 }
@@ -524,4 +738,14 @@ function applyHookContext(basePrompt: string, hookResult: { appendContext?: stri
 
 function escapeRegExp(value: string): string {
   return value.replace(/[.*+?^${}()|[\]\\]/gu, "\\$&");
+}
+
+function timelineTexts(runtime: ReturnType<typeof createTempRuntime>, agentId: string, sessionId: string): string[] {
+  return runtime.facade
+    .partner_mem_timeline({
+      agent_id: agentId,
+      session_id: sessionId,
+      limit: 20
+    })
+    .evidence_items.map((item) => item.text);
 }

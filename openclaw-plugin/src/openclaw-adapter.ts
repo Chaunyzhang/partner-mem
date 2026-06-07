@@ -1,11 +1,12 @@
 import { hashText } from "../../src/core/hash.js";
 import type { RawMessageInput } from "../../src/ingest/raw-ingest.js";
-import {
-  normalizeHostTurn,
-  type HostTurnEnvelope
-} from "../../src/adapters/adapter-contracts.js";
-import type { PartnerMemOpenClawConfig } from "./config.js";
+import { normalizeHostTurn } from "../../src/adapters/adapter-contracts.js";
 import type { PartnerMemOpenClawRuntime } from "./runtime.js";
+
+export interface OpenClawSessionIdentity {
+  agent_id: string;
+  session_id: string;
+}
 
 export interface OpenClawTurnIdentity {
   agent_id: string;
@@ -38,33 +39,35 @@ export function extractOpenClawVisibleMessages(messages: unknown[]): RawMessageI
   return visibleMessages;
 }
 
-export function selectCapturableMessages(
-  messages: RawMessageInput[],
-  config: PartnerMemOpenClawConfig
-): RawMessageInput[] {
-  const selected: RawMessageInput[] = [];
-  let selectedChars = 0;
-
-  for (let index = messages.length - 1; index >= 0; index -= 1) {
-    const message = messages[index];
-    if (!message) continue;
-    const messageChars = message.text.length;
-    if (messageChars > config.captureMaxCharsPerTurn) continue;
-    if (selected.length + 1 > config.captureMaxCompleteMessages) break;
-    if (selectedChars + messageChars > config.captureMaxCharsPerTurn) break;
-    selected.push(message);
-    selectedChars += messageChars;
-  }
-
-  return selected.reverse();
-}
-
 export function resolveOpenClawTurnIdentity(
   event: unknown,
   ctx: unknown,
   runtime: Pick<PartnerMemOpenClawRuntime, "nextTurnIndex">,
   messages: RawMessageInput[] = []
 ): OpenClawTurnIdentity {
+  const sessionIdentity = resolveOpenClawSessionIdentity(event, ctx);
+  const eventRecord = isRecord(event) ? event : {};
+  const turnId =
+    readString(eventRecord.turnId) ??
+    readString(eventRecord.turn_id) ??
+    readString(eventRecord.runId) ??
+    readString(eventRecord.run_id) ??
+    readString(eventRecord.id) ??
+    deterministicTurnId(sessionIdentity.agent_id, sessionIdentity.session_id, messages);
+  const turnIndex =
+    readNonNegativeInteger(eventRecord.turnIndex) ??
+    readNonNegativeInteger(eventRecord.turn_index) ??
+    runtime.nextTurnIndex(sessionIdentity.session_id);
+
+  return {
+    agent_id: sessionIdentity.agent_id,
+    session_id: sessionIdentity.session_id,
+    turn_id: turnId,
+    turn_index: turnIndex
+  };
+}
+
+export function resolveOpenClawSessionIdentity(event: unknown, ctx: unknown): OpenClawSessionIdentity {
   const eventRecord = isRecord(event) ? event : {};
   const ctxRecord = isRecord(ctx) ? ctx : {};
   const agentId =
@@ -79,42 +82,10 @@ export function resolveOpenClawTurnIdentity(
     readString(eventRecord.sessionId) ??
     readString(eventRecord.session_id) ??
     "openclaw-default-session";
-  const turnId =
-    readString(eventRecord.turnId) ??
-    readString(eventRecord.turn_id) ??
-    readString(eventRecord.runId) ??
-    readString(eventRecord.run_id) ??
-    readString(eventRecord.id) ??
-    deterministicTurnId(agentId, sessionId, messages);
-  const turnIndex =
-    readNonNegativeInteger(eventRecord.turnIndex) ??
-    readNonNegativeInteger(eventRecord.turn_index) ??
-    runtime.nextTurnIndex(sessionId);
 
   return {
     agent_id: agentId,
-    session_id: sessionId,
-    turn_id: turnId,
-    turn_index: turnIndex
-  };
-}
-
-export function normalizeOpenClawTurn(
-  event: unknown,
-  ctx: unknown,
-  runtime: Pick<PartnerMemOpenClawRuntime, "config" | "nextTurnIndex">,
-  config: PartnerMemOpenClawConfig = runtime.config
-): HostTurnEnvelope | undefined {
-  const eventRecord = isRecord(event) ? event : {};
-  const rawMessages = Array.isArray(eventRecord.messages) ? eventRecord.messages : [];
-  const visibleMessages = extractOpenClawVisibleMessages(rawMessages);
-  const messages = selectCapturableMessages(visibleMessages, config);
-  if (messages.length === 0) return undefined;
-
-  return {
-    host: "openclaw",
-    ...resolveOpenClawTurnIdentity(event, ctx, runtime, messages),
-    messages
+    session_id: sessionId
   };
 }
 

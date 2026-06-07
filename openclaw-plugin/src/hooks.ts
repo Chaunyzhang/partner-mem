@@ -1,12 +1,17 @@
 import type { OpenClawPluginApi } from "openclaw/plugin-sdk/plugin-entry";
-import { hashText } from "../../src/core/hash.js";
 import type { RawMessageInput } from "../../src/ingest/raw-ingest.js";
+import {
+  appendCaptureMessages,
+  collectFlushableTurns,
+  markCaptureTurnsFlushed,
+  selectNewCaptureMessages
+} from "./capture-buffer.js";
 import {
   extractOpenClawVisibleMessages,
   formatContextBlockForOpenClaw,
   normalizeHostTurn,
   resolveOpenClawTurnIdentity,
-  selectCapturableMessages
+  resolveOpenClawSessionIdentity
 } from "./openclaw-adapter.js";
 import type { PartnerMemOpenClawRuntime } from "./runtime.js";
 
@@ -35,33 +40,34 @@ export function captureAgentEnd(
     const eventRecord = isRecord(event) ? event : {};
     const rawMessages = Array.isArray(eventRecord.messages) ? eventRecord.messages : [];
     const visibleMessages = extractOpenClawVisibleMessages(rawMessages);
-    const selectedMessages = selectCapturableMessages(visibleMessages, runtime.config);
-    if (selectedMessages.length === 0) {
-      logOversizedOmissions(visibleMessages, runtime);
-      return;
-    }
+    const identity = resolveOpenClawSessionIdentity(event, ctx);
+    const state = runtime.getCaptureState(identity);
+    const storedCursor = runtime.getStoredCursor(identity) ?? -1;
+    const cursor = Math.max(storedCursor, state.bufferCursor);
+    const newMessages = selectNewCaptureMessages(visibleMessages, cursor, runtime.config);
 
-    const identity = resolveOpenClawTurnIdentity(event, ctx, runtime, selectedMessages);
-    const unseenMessages = selectedMessages.filter(
-      (message) => !runtime.hasSeenCapture(createCaptureKey(identity.session_id, identity.turn_id, message))
-    );
-    if (unseenMessages.length === 0) return;
-
-    const result = runtime.ingest.ingestTurn(
-      normalizeHostTurn({
-        host: "openclaw",
-        ...identity,
-        messages: unseenMessages
-      })
-    );
-    runtime.enqueueExtraction(result.raw_node_ids);
-
-    for (const message of unseenMessages) {
-      runtime.markCaptureSeen(createCaptureKey(identity.session_id, identity.turn_id, message));
-    }
+    appendCaptureMessages(state, newMessages);
     logOversizedOmissions(visibleMessages, runtime);
+
+    const flushableTurns = collectFlushableTurns(state, identity, runtime.config);
+    if (flushableTurns.length === 0) return;
+
+    let rawNodeCount = 0;
+    for (const turn of flushableTurns) {
+      const result = runtime.ingest.ingestTurn(
+        normalizeHostTurn({
+          host: "openclaw",
+          ...turn
+        })
+      );
+      runtime.enqueueExtraction(result.raw_node_ids);
+      rawNodeCount += result.raw_node_ids.length;
+      markCaptureTurnsFlushed(state, [turn]);
+    }
+
     runtime.logger.debug?.("Partner-Mem captured OpenClaw messages", {
-      raw_node_count: result.raw_node_ids.length
+      raw_node_count: rawNodeCount,
+      turn_count: flushableTurns.length
     });
   } catch (error) {
     runtime.logger.warn?.("Partner-Mem OpenClaw capture skipped after failure", {
@@ -127,16 +133,12 @@ function isPartnerMemInternalEvent(event: unknown, ctx: unknown): boolean {
   });
 }
 
-function createCaptureKey(sessionId: string, turnId: string, message: RawMessageInput): string {
-  return `${sessionId}:${turnId}:${message.message_index}:${hashText(message.text)}`;
-}
-
 function logOversizedOmissions(
   messages: RawMessageInput[],
   runtime: PartnerMemOpenClawRuntime
 ): void {
   const omittedCount = messages.filter(
-    (message) => message.text.length > runtime.config.captureMaxCharsPerTurn
+    (message) => message.text.length > runtime.config.captureMaxCharsPerMessage
   ).length;
   if (omittedCount > 0) {
     runtime.logger.warn?.("Partner-Mem skipped oversized OpenClaw messages", {
