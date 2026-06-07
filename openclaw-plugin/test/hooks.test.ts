@@ -66,6 +66,48 @@ describe("Partner-Mem OpenClaw hooks", () => {
     }
   });
 
+  it("filters channel conversation metadata before buffering captured turns", () => {
+    const runtime = createTempRuntime();
+    const originalIngest = runtime.ingest.ingestTurn;
+    const calls: Parameters<typeof runtime.ingest.ingestTurn>[0][] = [];
+    runtime.ingest.ingestTurn = (input) => {
+      calls.push(input);
+      return originalIngest.call(runtime.ingest, input);
+    };
+
+    try {
+      captureAgentEnd(
+        {
+          runId: "run-1",
+          success: true,
+          messages: [
+            {
+              role: "user",
+              content:
+                'Conversation info (untrusted metadata): { "chat_id": "chat-1", "message_id": "msg-1" }',
+              message_index: 0
+            },
+            { role: "user", content: "feishu visible user message", message_index: 1 },
+            { role: "assistant", content: "feishu visible assistant reply", message_index: 2 }
+          ]
+        },
+        { agentId: "agent-1", sessionKey: "session-1" },
+        runtime
+      );
+
+      expect(calls.map((call) => call.messages.map((message) => message.text))).toEqual([
+        ["feishu visible user message", "feishu visible assistant reply"]
+      ]);
+      expect(timelineTexts(runtime, "agent-1", "session-1")).toEqual([
+        "feishu visible user message",
+        "feishu visible assistant reply"
+      ]);
+    } finally {
+      runtime.ingest.ingestTurn = originalIngest;
+      cleanupRuntime(runtime);
+    }
+  });
+
   it("uses message_index cursor instead of runId when OpenClaw emits overlapping full history", () => {
     const runtime = createTempRuntime();
     try {

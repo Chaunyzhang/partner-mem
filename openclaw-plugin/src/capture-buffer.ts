@@ -30,12 +30,17 @@ export function selectNewCaptureMessages(
 
   for (const message of messages) {
     if (message.message_index <= cursor) continue;
+    if (isOpenClawChannelMetadataMessage(message)) continue;
     if (message.text.length > config.captureMaxCharsPerMessage) continue;
     if (byMessageIndex.has(message.message_index)) continue;
     byMessageIndex.set(message.message_index, message);
   }
 
   return [...byMessageIndex.values()].sort((left, right) => left.message_index - right.message_index);
+}
+
+function isOpenClawChannelMetadataMessage(message: RawMessageInput): boolean {
+  return message.text.startsWith("Conversation info (untrusted metadata)");
 }
 
 export function appendCaptureMessages(state: OpenClawCaptureState, messages: RawMessageInput[]): void {
