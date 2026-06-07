@@ -22,6 +22,22 @@ importers:
         specifier: ^4.0.15
         version: 4.1.8(@types/node@24.13.0)(vite@8.0.16(@types/node@24.13.0))
 
+  openclaw-plugin:
+    dependencies:
+      '@photostructure/sqlite':
+        specifier: ^1.2.1
+        version: 1.2.1
+    devDependencies:
+      '@types/node':
+        specifier: ^24.10.1
+        version: 24.13.0
+      typescript:
+        specifier: ^5.9.3
+        version: 5.9.3
+      vitest:
+        specifier: ^4.0.15
+        version: 4.1.8(@types/node@24.13.0)(vite@8.0.16(@types/node@24.13.0))
+
 packages:
 
   '@emnapi/core@1.10.0':

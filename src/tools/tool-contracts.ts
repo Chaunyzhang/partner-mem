@@ -48,7 +48,8 @@ export const toolSchemas = {
         agent_id: { type: "string" },
         session_id: { type: "string" },
         time_window: timeWindowSchema,
-        limit: { type: "integer", minimum: 1 }
+        limit: { type: "integer", minimum: 1 },
+        allow_cross_agent: { type: "boolean" }
       }
     }
   },

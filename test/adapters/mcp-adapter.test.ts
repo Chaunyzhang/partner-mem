@@ -19,6 +19,9 @@ describe("MCP adapter skeleton", () => {
     expect(
       tools.find((tool) => tool.name === "partner_mem_recall")?.inputSchema.properties
     ).toHaveProperty("time_window");
+    expect(
+      tools.find((tool) => tool.name === "partner_mem_recall")?.inputSchema.properties
+    ).toHaveProperty("allow_cross_agent");
   });
 
   it("routes tools/call style requests to ToolFacade", () => {

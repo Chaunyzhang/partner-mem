@@ -3,6 +3,11 @@ import { hashText } from "../../src/core/hash.js";
 import { RawIngestService } from "../../src/ingest/raw-ingest.js";
 import { RecallRouter } from "../../src/recall/recall-router.js";
 import { createInitializedStore } from "../helpers/db.js";
+import {
+  EXTRACTION_SCHEMA_VERSION,
+  validateExtractionProposal
+} from "../../src/extraction/proposal-validator.js";
+import { TypedGraphWriter } from "../../src/extraction/typed-graph-writer.js";
 
 describe("RecallRouter", () => {
   it("returns original raw text after FTS seed plus resolver", () => {
@@ -170,5 +175,191 @@ describe("RecallRouter", () => {
 
     expect(packet.evidence_items).toEqual([]);
     expect(packet.blocked_paths.map((path) => path.reason)).toContain("target_hash_mismatch");
+  });
+
+  it("resolves a typed graph seed back to raw evidence without returning model text as proof", () => {
+    const store = createInitializedStore();
+    const rawResult = new RawIngestService(store).ingestTurn({
+      agent_id: "agent-1",
+      session_id: "session-1",
+      turn_id: "turn-1",
+      turn_index: 0,
+      messages: [
+        {
+          role: "user",
+          text: "Alice decided Project Quartz ships on 2026-06-01.",
+          observed_at: "2026-06-01T00:00:00.000Z",
+          message_index: 0
+        }
+      ]
+    });
+    const rawNode = store.getNode(rawResult.raw_node_ids[0] ?? "");
+    const rawPayload = store.getRawPayload(rawResult.raw_node_ids[0] ?? "");
+    if (!rawNode || !rawPayload) throw new Error("missing raw evidence");
+    const validation = validateExtractionProposal(
+      {
+        schema_version: EXTRACTION_SCHEMA_VERSION,
+        raw_node_id: rawNode.node_id,
+        items: [
+          {
+            provisional_id: "item-1",
+            node_type: "decision",
+            label: "Quartz ship date",
+            text: "Project Quartz ships on 2026-06-01",
+            evidence_text: "Project Quartz ships on 2026-06-01",
+            attributes: [{ key: "project_name", value: "Project Quartz", evidence_text: "Project Quartz" }],
+            temporal: {
+              source_text: "2026-06-01",
+              valid_from: "2026-06-01",
+              valid_to: null,
+              granularity: "date"
+            },
+            confidence: 0.9
+          }
+        ]
+      },
+      rawNode,
+      rawPayload
+    );
+    new TypedGraphWriter(store).writeAcceptedItems({
+      raw_node: rawNode,
+      raw_payload: rawPayload,
+      accepted_items: validation.accepted_items
+    });
+
+    const packet = new RecallRouter(store).recall({
+      query: "Quartz ship date",
+      agent_id: "agent-1",
+      limit: 3
+    });
+
+    expect(packet.evidence_items.map((item) => item.text)).toContain(
+      "Alice decided Project Quartz ships on 2026-06-01."
+    );
+    expect(packet.evidence_items.map((item) => item.text)).not.toContain("Project Quartz ships on 2026-06-01");
+  });
+
+  it("does not let a semantic edge from typed node to raw node produce final evidence", () => {
+    const store = createInitializedStore();
+    const rawHash = hashText("semantic proof is forbidden");
+    store.createNode({
+      node_id: "entity-1",
+      agent_id: "agent-1",
+      session_id: null,
+      node_type: "entity",
+      created_at: "2026-01-01T00:00:00.000Z",
+      content_hash: hashText("semantic entity")
+    });
+    store.insertFtsNode({
+      node_id: "entity-1",
+      agent_id: "agent-1",
+      session_id: null,
+      node_type: "entity",
+      text: "semantic forbidden seed"
+    });
+    store.createNode({
+      node_id: "raw-semantic-1",
+      agent_id: "agent-1",
+      session_id: "session-1",
+      node_type: "raw_message",
+      created_at: "2026-01-01T00:00:00.000Z",
+      content_hash: rawHash
+    });
+    store.createRawPayload({
+      node_id: "raw-semantic-1",
+      role: "user",
+      text: "semantic proof is forbidden",
+      normalized_text: "semantic proof is forbidden",
+      token_count: 4,
+      turn_id: "turn-1",
+      turn_index: 0,
+      message_index: 0,
+      source_hash: rawHash
+    });
+    store.createEdge({
+      edge_id: "semantic-edge",
+      agent_id: "agent-1",
+      from_node_id: "entity-1",
+      to_node_id: "raw-semantic-1",
+      edge_type: "RELATED_TO",
+      edge_class: "semantic",
+      created_at: "2026-01-01T00:00:00.000Z",
+      target_hash: rawHash
+    });
+
+    const packet = new RecallRouter(store).recall({
+      query: "semantic forbidden",
+      agent_id: "agent-1",
+      limit: 3
+    });
+
+    expect(packet.evidence_items).toEqual([]);
+    expect(packet.blocked_paths.map((path) => path.reason)).toContain("disallowed_edge_class");
+  });
+
+  it("blocks cross-agent evidence paths by default and allows them when requested", () => {
+    const store = createInitializedStore();
+    const rawHash = hashText("shared proof from another agent");
+    store.createNode({
+      node_id: "decision-cross-agent",
+      agent_id: "agent-1",
+      session_id: null,
+      node_type: "decision",
+      created_at: "2026-01-01T00:00:00.000Z",
+      content_hash: hashText("decision cross agent")
+    });
+    store.insertFtsNode({
+      node_id: "decision-cross-agent",
+      agent_id: "agent-1",
+      session_id: null,
+      node_type: "decision",
+      text: "shared proof route"
+    });
+    store.createNode({
+      node_id: "raw-cross-agent",
+      agent_id: "agent-2",
+      session_id: "session-2",
+      node_type: "raw_message",
+      created_at: "2026-01-01T00:00:00.000Z",
+      content_hash: rawHash
+    });
+    store.createRawPayload({
+      node_id: "raw-cross-agent",
+      role: "user",
+      text: "shared proof from another agent",
+      normalized_text: "shared proof from another agent",
+      token_count: 5,
+      turn_id: "turn-2",
+      turn_index: 0,
+      message_index: 0,
+      source_hash: rawHash
+    });
+    store.createEdge({
+      edge_id: "edge-cross-agent",
+      agent_id: "agent-2",
+      from_node_id: "decision-cross-agent",
+      to_node_id: "raw-cross-agent",
+      edge_type: "EVIDENCED_BY_RAW",
+      edge_class: "evidence",
+      created_at: "2026-01-01T00:00:00.000Z",
+      target_hash: rawHash
+    });
+
+    const router = new RecallRouter(store);
+    const blocked = router.recall({
+      query: "shared proof",
+      agent_id: "agent-1",
+      limit: 3
+    });
+    const allowed = router.recall({
+      query: "shared proof",
+      agent_id: "agent-1",
+      limit: 3,
+      allow_cross_agent: true
+    });
+
+    expect(blocked.evidence_items).toEqual([]);
+    expect(blocked.blocked_paths.map((path) => path.reason)).toContain("cross_agent_edge_blocked");
+    expect(allowed.evidence_items.map((item) => item.text)).toEqual(["shared proof from another agent"]);
   });
 });

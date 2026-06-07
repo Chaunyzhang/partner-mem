@@ -1,0 +1,100 @@
+{
+  "id": "partner-mem",
+  "name": "Partner-Mem",
+  "description": "Local graph memory for OpenClaw backed by Partner-Mem raw evidence recall.",
+  "activation": {
+    "onStartup": true
+  },
+  "kind": "memory",
+  "contracts": {
+    "tools": [
+      "partner_mem_search",
+      "partner_mem_recall",
+      "partner_mem_timeline",
+      "partner_mem_status"
+    ]
+  },
+  "configSchema": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "dbPath": {
+        "type": "string"
+      },
+      "autoCapture": {
+        "type": "boolean"
+      },
+      "autoRecall": {
+        "type": "boolean"
+      },
+      "contextBudgetTokens": {
+        "type": "integer",
+        "minimum": 1,
+        "maximum": 20000
+      },
+      "recallLimit": {
+        "type": "integer",
+        "minimum": 1,
+        "maximum": 50
+      },
+      "captureMaxCharsPerTurn": {
+        "type": "integer",
+        "minimum": 1000,
+        "maximum": 200000
+      },
+      "captureMaxCompleteMessages": {
+        "type": "integer",
+        "minimum": 1,
+        "maximum": 100
+      },
+      "hookTimeoutMs": {
+        "type": "integer",
+        "minimum": 100,
+        "maximum": 14000
+      },
+      "extractor": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "enabled": {
+            "type": "boolean"
+          },
+          "provider": {
+            "type": "string",
+            "minLength": 1
+          },
+          "model": {
+            "type": "string",
+            "minLength": 1
+          },
+          "allowedModels": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "pattern": "^[^/\\s]+/[^/\\s]+$"
+            }
+          },
+          "timeoutMs": {
+            "type": "integer",
+            "minimum": 1000,
+            "maximum": 120000
+          },
+          "maxTokens": {
+            "type": "integer",
+            "minimum": 128,
+            "maximum": 8000
+          },
+          "queueMaxItems": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 10000
+          },
+          "onFailure": {
+            "type": "string",
+            "enum": ["skip"]
+          }
+        }
+      }
+    }
+  }
+}

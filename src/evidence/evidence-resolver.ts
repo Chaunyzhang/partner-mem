@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { GraphTraversal } from "../graph/traversal.js";
+import { GraphTraversal, type WalkEvidencePathOptions } from "../graph/traversal.js";
 import { GraphStore, type MemoryEdge, type MemoryNode, type RawPayload } from "../storage/graph-store.js";
 import {
   buildEvidencePacket,
@@ -15,6 +15,10 @@ export interface EvidenceResolveInput {
   max_evidence_items?: number;
   query_id?: string;
   include_raw_neighbors?: boolean;
+  /** If set, traversal only follows edges owned by this agent. */
+  agent_id?: string;
+  /** When true, traversal may follow edges owned by other agents. */
+  allow_cross_agent?: boolean;
 }
 
 export class EvidenceResolver {
@@ -47,7 +51,7 @@ export class EvidenceResolver {
       if (direct.blocked) blockedPaths.push(direct.blocked);
 
       if (input.include_raw_neighbors) {
-        const traversalResult = this.traversal.walkEvidencePaths(candidate.node_id, { max_depth: 1 });
+        const traversalResult = this.traversal.walkEvidencePaths(candidate.node_id, buildTraversalOptions(1, input.agent_id, input.allow_cross_agent));
         blockedPaths.push(...traversalResult.blocked_paths);
         for (const path of traversalResult.paths) {
           this.verifyPath(input.candidate_node_id, path, verifiedRawItems, blockedPaths);
@@ -57,7 +61,7 @@ export class EvidenceResolver {
       return this.finish(input, queryId, verifiedRawItems.slice(0, maxEvidenceItems), blockedPaths);
     }
 
-    const traversalResult = this.traversal.walkEvidencePaths(candidate.node_id, { max_depth: maxDepth });
+    const traversalResult = this.traversal.walkEvidencePaths(candidate.node_id, buildTraversalOptions(maxDepth, input.agent_id, input.allow_cross_agent));
     blockedPaths.push(...traversalResult.blocked_paths);
     for (const path of traversalResult.paths) {
       this.verifyPath(input.candidate_node_id, path, verifiedRawItems, blockedPaths);
@@ -183,4 +187,19 @@ export class EvidenceResolver {
     });
     return packet;
   }
+}
+
+/**
+ * Build a WalkEvidencePathOptions that only sets optional fields when defined.
+ * Required for strict exactOptionalPropertyTypes compliance.
+ */
+function buildTraversalOptions(
+  maxDepth: number,
+  agentId: string | undefined,
+  allowCrossAgent: boolean | undefined
+): WalkEvidencePathOptions {
+  const options: WalkEvidencePathOptions = { max_depth: maxDepth };
+  if (agentId !== undefined) options.agent_id = agentId;
+  if (allowCrossAgent !== undefined) options.allow_cross_agent = allowCrossAgent;
+  return options;
 }

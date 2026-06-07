@@ -1,4 +1,5 @@
 import type { EdgeClass, EdgeType, NodeStatus, NodeType, RawMessageRole } from "../core/contracts.js";
+import { buildFtsIndexText, buildFtsMatchQuery } from "./fts-text.js";
 import type { SqliteDatabase } from "./schema.js";
 
 export interface MemoryNode {
@@ -256,7 +257,12 @@ export class GraphStore {
       .prepare(
         "INSERT INTO node_fts(node_id, agent_id, session_id, node_type, text) VALUES (?, ?, ?, ?, ?)"
       )
-      .run(input.node_id, input.agent_id, input.session_id ?? null, input.node_type, input.text);
+      .run(input.node_id, input.agent_id, input.session_id ?? null, input.node_type, buildFtsIndexText(input.text));
+  }
+
+  replaceFtsNode(input: FtsNodeInput): void {
+    this.db.prepare("DELETE FROM node_fts WHERE node_id = ?").run(input.node_id);
+    this.insertFtsNode(input);
   }
 
   insertEvidencePacketAudit(input: EvidencePacketAuditInput): void {
@@ -311,7 +317,7 @@ export class GraphStore {
     const sessionClause = sessionId ? "AND f.session_id = ?" : "";
     const sinceClause = timeWindow?.since ? "AND n.observed_at >= ?" : "";
     const untilClause = timeWindow?.until ? "AND n.observed_at <= ?" : "";
-    const params: unknown[] = [escapeFtsQuery(query), agentId];
+    const params: unknown[] = [buildFtsMatchQuery(query), agentId];
     if (sessionId) params.push(sessionId);
     if (timeWindow?.since) params.push(timeWindow.since);
     if (timeWindow?.until) params.push(timeWindow.until);
@@ -354,17 +360,21 @@ export class GraphStore {
 
     const rows = this.db
       .prepare(
-        `SELECT
-          n.node_id, n.agent_id, n.session_id, n.node_type, n.status, n.created_at,
-          n.updated_at, n.observed_at, n.valid_from, n.valid_to, n.invalidated_at,
-          n.content_hash, n.metadata_json,
-          p.role, p.text, p.normalized_text, p.token_count, p.turn_id,
-          p.turn_index, p.message_index, p.source_hash
-        FROM memory_nodes n
-        JOIN raw_payloads p ON p.node_id = n.node_id
-        WHERE ${clauses.join(" AND ")}
-        ORDER BY n.observed_at, p.turn_index, p.message_index
-        LIMIT ?`
+        `SELECT *
+         FROM (
+          SELECT
+            n.node_id, n.agent_id, n.session_id, n.node_type, n.status, n.created_at,
+            n.updated_at, n.observed_at, n.valid_from, n.valid_to, n.invalidated_at,
+            n.content_hash, n.metadata_json,
+            p.role, p.text, p.normalized_text, p.token_count, p.turn_id,
+            p.turn_index, p.message_index, p.source_hash
+          FROM memory_nodes n
+          JOIN raw_payloads p ON p.node_id = n.node_id
+          WHERE ${clauses.join(" AND ")}
+          ORDER BY n.observed_at DESC, p.turn_index DESC, p.message_index DESC
+          LIMIT ?
+         )
+         ORDER BY observed_at, turn_index, message_index`
       )
       .all(...params) as Array<MemoryNode & RawPayload>;
 
@@ -450,12 +460,4 @@ export class GraphStore {
       .prepare(`SELECT * FROM memory_edges WHERE ${clauses.join(" AND ")} ORDER BY created_at, edge_id`)
       .all(...params) as MemoryEdge[];
   }
-}
-
-function escapeFtsQuery(query: string): string {
-  return query
-    .split(/\s+/u)
-    .filter((term) => term.length > 0)
-    .map((term) => `"${term.replaceAll('"', '""')}"`)
-    .join(" ");
 }

@@ -10,7 +10,8 @@ export const BLOCKED_REASONS = [
   "cycle_detected",
   "missing_raw_payload",
   "max_depth_exceeded",
-  "non_raw_terminal"
+  "non_raw_terminal",
+  "cross_agent_edge_blocked"
 ] as const;
 
 export type BlockedReason = (typeof BLOCKED_REASONS)[number];
