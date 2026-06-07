@@ -239,6 +239,163 @@ describe("RecallRouter", () => {
     expect(packet.evidence_items.map((item) => item.text)).not.toContain("Project Quartz ships on 2026-06-01");
   });
 
+  it("deduplicates raw evidence reached by direct FTS and graph-expanded typed candidates", () => {
+    const store = createInitializedStore();
+    const rawResult = new RawIngestService(store).ingestTurn({
+      agent_id: "agent-1",
+      session_id: "session-1",
+      turn_id: "turn-1",
+      turn_index: 0,
+      messages: [
+        {
+          role: "user",
+          text: "The release codename is nebula and it ships Monday.",
+          observed_at: "2026-01-01T00:00:00.000Z",
+          message_index: 0
+        }
+      ]
+    });
+    const rawNode = store.getNode(rawResult.raw_node_ids[0] ?? "");
+    const rawPayload = store.getRawPayload(rawResult.raw_node_ids[0] ?? "");
+    if (!rawNode || !rawPayload) throw new Error("missing raw evidence");
+    const validation = validateExtractionProposal(
+      {
+        schema_version: EXTRACTION_SCHEMA_VERSION,
+        raw_node_id: rawNode.node_id,
+        items: [
+          {
+            provisional_id: "item-1",
+            node_type: "decision",
+            label: "Release schedule",
+            text: "Release ships Monday",
+            evidence_text: "ships Monday",
+            attributes: [{ key: "ship_day", value: "Monday", evidence_text: "Monday" }],
+            temporal: { source_text: null, valid_from: null, valid_to: null, granularity: "none" },
+            confidence: 0.9
+          }
+        ]
+      },
+      rawNode,
+      rawPayload
+    );
+    new TypedGraphWriter(store).writeAcceptedItems({
+      raw_node: rawNode,
+      raw_payload: rawPayload,
+      accepted_items: validation.accepted_items
+    });
+
+    const packet = new RecallRouter(store).recall({
+      query: "codename",
+      agent_id: "agent-1",
+      limit: 5
+    });
+    const audit = store
+      .rawDb()
+      .prepare("SELECT seed_count, evidence_count FROM retrieval_runs WHERE result_class = 'evidence'")
+      .get() as { seed_count: number; evidence_count: number };
+
+    expect(audit.seed_count).toBe(2);
+    expect(packet.evidence_items.map((item) => item.raw_node_id)).toEqual([rawNode.node_id]);
+    expect(audit.evidence_count).toBe(1);
+  });
+
+  it("keeps distinct raw FTS evidence from being crowded out by graph-expanded typed candidates", () => {
+    const store = createInitializedStore();
+    const service = new RawIngestService(store);
+    const first = service.ingestTurn({
+      agent_id: "agent-1",
+      session_id: "session-1",
+      turn_id: "turn-1",
+      turn_index: 0,
+      messages: [
+        {
+          role: "user",
+          text: "shared marker shared marker shared marker ships Monday and owner is Alice.",
+          observed_at: "2026-01-01T00:00:00.000Z",
+          message_index: 0
+        }
+      ]
+    });
+    service.ingestTurn({
+      agent_id: "agent-1",
+      session_id: "session-1",
+      turn_id: "turn-2",
+      turn_index: 1,
+      messages: [
+        {
+          role: "user",
+          text: "shared marker raw two with a longer body that should rank after the repeated first memory",
+          observed_at: "2026-01-02T00:00:00.000Z",
+          message_index: 1
+        }
+      ]
+    });
+    service.ingestTurn({
+      agent_id: "agent-1",
+      session_id: "session-1",
+      turn_id: "turn-3",
+      turn_index: 2,
+      messages: [
+        {
+          role: "user",
+          text: "shared marker raw three with a longer body that should rank after the repeated first memory",
+          observed_at: "2026-01-03T00:00:00.000Z",
+          message_index: 2
+        }
+      ]
+    });
+    const rawNode = store.getNode(first.raw_node_ids[0] ?? "");
+    const rawPayload = store.getRawPayload(first.raw_node_ids[0] ?? "");
+    if (!rawNode || !rawPayload) throw new Error("missing raw evidence");
+    const validation = validateExtractionProposal(
+      {
+        schema_version: EXTRACTION_SCHEMA_VERSION,
+        raw_node_id: rawNode.node_id,
+        items: [
+          {
+            provisional_id: "item-1",
+            node_type: "decision",
+            label: "Release schedule",
+            text: "Release ships Monday",
+            evidence_text: "ships Monday",
+            attributes: [{ key: "ship_day", value: "Monday", evidence_text: "Monday" }],
+            temporal: { source_text: null, valid_from: null, valid_to: null, granularity: "none" },
+            confidence: 0.9
+          },
+          {
+            provisional_id: "item-2",
+            node_type: "entity",
+            label: "Release owner",
+            text: "Owner is Alice",
+            evidence_text: "owner is Alice",
+            attributes: [{ key: "owner", value: "Alice", evidence_text: "Alice" }],
+            temporal: { source_text: null, valid_from: null, valid_to: null, granularity: "none" },
+            confidence: 0.9
+          }
+        ]
+      },
+      rawNode,
+      rawPayload
+    );
+    new TypedGraphWriter(store).writeAcceptedItems({
+      raw_node: rawNode,
+      raw_payload: rawPayload,
+      accepted_items: validation.accepted_items
+    });
+
+    const packet = new RecallRouter(store).recall({
+      query: "shared marker",
+      agent_id: "agent-1",
+      limit: 3
+    });
+
+    expect(packet.evidence_items.map((item) => item.text)).toEqual([
+      "shared marker shared marker shared marker ships Monday and owner is Alice.",
+      "shared marker raw two with a longer body that should rank after the repeated first memory",
+      "shared marker raw three with a longer body that should rank after the repeated first memory"
+    ]);
+  });
+
   it("does not let a semantic edge from typed node to raw node produce final evidence", () => {
     const store = createInitializedStore();
     const rawHash = hashText("semantic proof is forbidden");
