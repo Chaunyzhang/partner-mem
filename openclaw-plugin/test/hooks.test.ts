@@ -1,8 +1,10 @@
 import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { DatabaseSync } from "@photostructure/sqlite";
 import { describe, expect, it } from "vitest";
 import { readPartnerMemOpenClawConfig } from "../src/config.js";
+import type { SqliteDatabase } from "../../src/storage/schema.js";
 import {
   captureAgentEnd,
   recallBeforePromptBuild,
@@ -288,6 +290,63 @@ describe("Partner-Mem OpenClaw hooks", () => {
       expect(new Set(calls.map((call) => call.turn_id)).size).toBe(2);
     } finally {
       runtime.ingest.ingestTurn = originalIngest;
+      cleanupRuntime(runtime);
+    }
+  });
+
+  it("prunes audit logs after successful capture flush without deleting memory or FTS rows", () => {
+    const runtime = createTempRuntime({ auditRetentionMaxRows: 2 });
+    try {
+      captureAgentEnd(
+        {
+          runId: "run-1",
+          success: true,
+          messages: [
+            { role: "user", content: "audit cleanup searchable user", message_index: 0 },
+            { role: "assistant", content: "audit cleanup searchable assistant", message_index: 1 }
+          ]
+        },
+        { agentId: "agent-1", sessionKey: "session-1" },
+        runtime
+      );
+
+      for (let index = 0; index < 4; index += 1) {
+        runtime.facade.partner_mem_search({
+          query: "audit cleanup searchable",
+          agent_id: "agent-1",
+          session_id: "session-1",
+          limit: 10
+        });
+        runtime.facade.partner_mem_recall({
+          query: "audit cleanup searchable",
+          agent_id: "agent-1",
+          session_id: "session-1",
+          limit: 10
+        });
+      }
+
+      expect(countRuntimeRows(runtime, "retrieval_runs")).toBeGreaterThan(2);
+      expect(countRuntimeRows(runtime, "evidence_packets")).toBeGreaterThan(2);
+
+      captureAgentEnd(
+        {
+          runId: "run-2",
+          success: true,
+          messages: [
+            { role: "user", content: "audit cleanup second user", message_index: 2 },
+            { role: "assistant", content: "audit cleanup second assistant", message_index: 3 }
+          ]
+        },
+        { agentId: "agent-1", sessionKey: "session-1" },
+        runtime
+      );
+
+      expect(countRuntimeRows(runtime, "retrieval_runs")).toBe(2);
+      expect(countRuntimeRows(runtime, "evidence_packets")).toBe(2);
+      expect(countRuntimeRows(runtime, "memory_nodes")).toBe(4);
+      expect(countRuntimeRows(runtime, "raw_payloads")).toBe(4);
+      expect(countRuntimeRows(runtime, "node_fts")).toBe(4);
+    } finally {
       cleanupRuntime(runtime);
     }
   });
@@ -790,4 +849,17 @@ function timelineTexts(runtime: ReturnType<typeof createTempRuntime>, agentId: s
       limit: 20
     })
     .evidence_items.map((item) => item.text);
+}
+
+function countRuntimeRows(runtime: ReturnType<typeof createTempRuntime>, tableName: string): number {
+  if (!/^[a-z_]+$/u.test(tableName)) {
+    throw new TypeError(`Unsafe table name: ${tableName}`);
+  }
+  const db = new DatabaseSync(runtime.__dbPath) as SqliteDatabase & { close?: () => void };
+  try {
+    const row = db.prepare(`SELECT COUNT(*) AS count FROM ${tableName}`).get() as { count: number };
+    return row.count;
+  } finally {
+    db.close?.();
+  }
 }

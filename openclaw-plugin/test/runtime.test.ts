@@ -22,15 +22,18 @@ describe("Partner-Mem OpenClaw runtime and config", () => {
       captureFlushMaxTokens: 30000,
       captureFlushMaxTurns: 12,
       captureMaxCharsPerMessage: 300000,
+      auditRetentionMaxRows: 250,
       hookTimeoutMs: 500
     });
     const coreConfig = createPartnerMemCoreConfig(config);
 
+    expect(DEFAULT_PARTNER_MEM_OPENCLAW_CONFIG.auditRetentionMaxRows).toBe(500);
     expect(config.autoCapture).toBe(false);
     expect(config.recallLimit).toBe(6);
     expect(config.captureFlushMaxTokens).toBe(30000);
     expect(config.captureFlushMaxTurns).toBe(12);
     expect(config.captureMaxCharsPerMessage).toBe(300000);
+    expect(config.auditRetentionMaxRows).toBe(250);
     expect(coreConfig.context.autoRecallEnabled).toBe(true);
     expect(coreConfig.summary.autoBuildEnabled).toBe(false);
   });
@@ -40,6 +43,7 @@ describe("Partner-Mem OpenClaw runtime and config", () => {
     expect(() => readPartnerMemOpenClawConfig({ captureFlushMaxTokens: 0 })).toThrow(TypeError);
     expect(() => readPartnerMemOpenClawConfig({ captureFlushMaxTurns: 101 })).toThrow(TypeError);
     expect(() => readPartnerMemOpenClawConfig({ captureMaxCharsPerMessage: 999 })).toThrow(TypeError);
+    expect(() => readPartnerMemOpenClawConfig({ auditRetentionMaxRows: -1 })).toThrow(TypeError);
   });
 
   it("initializes an on-disk database and status does not expose the path", () => {

@@ -25,6 +25,7 @@ export interface PartnerMemOpenClawRuntime {
   nextTurnIndex(sessionId: string): number;
   getCaptureState(identity: OpenClawCaptureIdentity): OpenClawCaptureState;
   getStoredCursor(identity: OpenClawCaptureIdentity): number | undefined;
+  pruneAuditLogsAfterCaptureFlush(): void;
   enqueueExtraction(rawNodeIds: string[]): void;
   drainExtractionQueueForTests(): Promise<void>;
   stop(): void;
@@ -120,6 +121,16 @@ export function createPartnerMemOpenClawRuntime(
     },
     getStoredCursor(identity: OpenClawCaptureIdentity) {
       return store.getMaxRawMessageIndex(identity);
+    },
+    pruneAuditLogsAfterCaptureFlush() {
+      if (config.auditRetentionMaxRows === 0 || stopped) return;
+      try {
+        store.pruneAuditLogs(config.auditRetentionMaxRows);
+      } catch (error) {
+        logger.warn?.("Partner-Mem audit log cleanup skipped after failure", {
+          error: error instanceof Error ? error.message : String(error)
+        });
+      }
     },
     enqueueExtraction(rawNodeIds: string[]) {
       if (!config.extractor.enabled || stopped) return;

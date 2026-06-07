@@ -64,6 +64,7 @@ export function captureAgentEnd(
       rawNodeCount += result.raw_node_ids.length;
       markCaptureTurnsFlushed(state, [turn]);
     }
+    runtime.pruneAuditLogsAfterCaptureFlush();
 
     runtime.logger.debug?.("Partner-Mem captured OpenClaw messages", {
       raw_node_count: rawNodeCount,

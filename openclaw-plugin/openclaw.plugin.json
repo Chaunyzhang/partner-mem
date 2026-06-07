@@ -52,6 +52,11 @@
         "minimum": 1000,
         "maximum": 1000000
       },
+      "auditRetentionMaxRows": {
+        "type": "integer",
+        "minimum": 0,
+        "maximum": 100000
+      },
       "hookTimeoutMs": {
         "type": "integer",
         "minimum": 100,

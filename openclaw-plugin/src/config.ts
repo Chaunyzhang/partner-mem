@@ -9,6 +9,7 @@ export interface PartnerMemOpenClawConfig {
   captureFlushMaxTokens: number;
   captureFlushMaxTurns: number;
   captureMaxCharsPerMessage: number;
+  auditRetentionMaxRows: number;
   hookTimeoutMs: number;
   extractor: PartnerMemOpenClawExtractorConfig;
 }
@@ -33,6 +34,7 @@ export const DEFAULT_PARTNER_MEM_OPENCLAW_CONFIG: PartnerMemOpenClawConfig = {
   captureFlushMaxTokens: 20000,
   captureFlushMaxTurns: 7,
   captureMaxCharsPerMessage: 200000,
+  auditRetentionMaxRows: 500,
   hookTimeoutMs: 12000,
   extractor: {
     enabled: false,
@@ -50,6 +52,7 @@ const INTEGER_RANGES = {
   captureFlushMaxTokens: { min: 1, max: 200000 },
   captureFlushMaxTurns: { min: 1, max: 100 },
   captureMaxCharsPerMessage: { min: 1000, max: 1000000 },
+  auditRetentionMaxRows: { min: 0, max: 100000 },
   hookTimeoutMs: { min: 100, max: 14000 }
 } as const satisfies Record<keyof Omit<PartnerMemOpenClawConfig, "dbPath" | "autoCapture" | "autoRecall" | "extractor">, {
   min: number;

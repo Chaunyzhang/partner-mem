@@ -307,6 +307,34 @@ export class GraphStore {
       );
   }
 
+  pruneAuditLogs(retainMaxRows: number): void {
+    if (!Number.isInteger(retainMaxRows) || retainMaxRows < 0) {
+      throw new TypeError("retainMaxRows must be a non-negative integer");
+    }
+
+    this.db
+      .prepare(
+        `DELETE FROM retrieval_runs
+         WHERE rowid NOT IN (
+           SELECT rowid FROM retrieval_runs
+           ORDER BY created_at DESC, run_id DESC
+           LIMIT ?
+         )`
+      )
+      .run(retainMaxRows);
+
+    this.db
+      .prepare(
+        `DELETE FROM evidence_packets
+         WHERE rowid NOT IN (
+           SELECT rowid FROM evidence_packets
+           ORDER BY created_at DESC, packet_id DESC
+           LIMIT ?
+         )`
+      )
+      .run(retainMaxRows);
+  }
+
   searchFts(
     query: string,
     agentId: string,
