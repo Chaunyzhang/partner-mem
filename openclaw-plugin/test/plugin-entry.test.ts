@@ -34,7 +34,7 @@ describe("Partner-Mem OpenClaw plugin entry", () => {
         services.push(service);
       },
       registerTool(registration: unknown, opts?: { name?: string; names?: string[] }) {
-        tools.push({ registration, opts });
+        tools.push(opts === undefined ? { registration } : { registration, opts });
       },
       registerMemoryCapability(capability: unknown) {
         memoryCapabilities.push(capability);
