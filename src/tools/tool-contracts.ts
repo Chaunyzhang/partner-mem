@@ -1,3 +1,5 @@
+import { MEMORY_SCOPE_VALUES } from "./tool-scope.js";
+
 export const TOOL_NAMES = [
   "partner_mem_search",
   "partner_mem_recall",
@@ -21,17 +23,22 @@ const timeWindowSchema = {
   }
 } as const;
 
+const memoryScopeSchema = {
+  type: "string",
+  enum: [...MEMORY_SCOPE_VALUES],
+  description: "current_session searches only this chat; agent_memory searches long-term memory for the same agent."
+} as const;
+
 export const toolSchemas = {
   partner_mem_search: {
     name: "partner_mem_search",
     description: "Search Partner-Mem candidate routes. Candidate results are not final evidence.",
     inputSchema: {
       type: "object",
-      required: ["query", "agent_id", "limit"],
+      required: ["query", "limit"],
       properties: {
         query: { type: "string" },
-        agent_id: { type: "string" },
-        session_id: { type: "string" },
+        scope: memoryScopeSchema,
         time_window: timeWindowSchema,
         limit: { type: "integer", minimum: 1 }
       }
@@ -42,14 +49,12 @@ export const toolSchemas = {
     description: "Recall verified original raw text evidence through the graph resolver.",
     inputSchema: {
       type: "object",
-      required: ["query", "agent_id", "limit"],
+      required: ["query", "limit"],
       properties: {
         query: { type: "string" },
-        agent_id: { type: "string" },
-        session_id: { type: "string" },
+        scope: memoryScopeSchema,
         time_window: timeWindowSchema,
-        limit: { type: "integer", minimum: 1 },
-        allow_cross_agent: { type: "boolean" }
+        limit: { type: "integer", minimum: 1 }
       }
     }
   },
@@ -58,10 +63,8 @@ export const toolSchemas = {
     description: "Return recent or filtered raw memory timeline items.",
     inputSchema: {
       type: "object",
-      required: ["agent_id", "limit"],
+      required: ["limit"],
       properties: {
-        agent_id: { type: "string" },
-        session_id: { type: "string" },
         since: { type: "string" },
         until: { type: "string" },
         limit: { type: "integer", minimum: 1 }

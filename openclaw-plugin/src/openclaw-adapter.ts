@@ -1,21 +1,19 @@
-import { hashText } from "../../src/core/hash.js";
 import type { RawMessageInput } from "../../src/ingest/raw-ingest.js";
 import { normalizeHostTurn } from "../../src/adapters/adapter-contracts.js";
-import type { PartnerMemOpenClawRuntime } from "./runtime.js";
 
 export interface OpenClawSessionIdentity {
   agent_id: string;
   session_id: string;
 }
 
-export interface OpenClawTurnIdentity {
-  agent_id: string;
-  session_id: string;
-  turn_id: string;
-  turn_index: number;
+export interface OpenClawVisibleMessageExtractionDiagnostics {
+  injection_stripped_count: number;
 }
 
-export function extractOpenClawVisibleMessages(messages: unknown[]): RawMessageInput[] {
+export function extractOpenClawVisibleMessages(
+  messages: unknown[],
+  diagnostics?: OpenClawVisibleMessageExtractionDiagnostics
+): RawMessageInput[] {
   const observedAt = new Date().toISOString();
   const visibleMessages: RawMessageInput[] = [];
 
@@ -25,7 +23,8 @@ export function extractOpenClawVisibleMessages(messages: unknown[]): RawMessageI
     const role = message.role;
     if (role !== "user" && role !== "assistant") return;
 
-    const text = extractMessageText(message);
+    const { text, stripped_count } = extractMessageText(message);
+    if (diagnostics) diagnostics.injection_stripped_count += stripped_count;
     if (text.trim().length === 0) return;
 
     visibleMessages.push({
@@ -39,49 +38,14 @@ export function extractOpenClawVisibleMessages(messages: unknown[]): RawMessageI
   return visibleMessages;
 }
 
-export function resolveOpenClawTurnIdentity(
-  event: unknown,
-  ctx: unknown,
-  runtime: Pick<PartnerMemOpenClawRuntime, "nextTurnIndex">,
-  messages: RawMessageInput[] = []
-): OpenClawTurnIdentity {
-  const sessionIdentity = resolveOpenClawSessionIdentity(event, ctx);
-  const eventRecord = isRecord(event) ? event : {};
-  const turnId =
-    readString(eventRecord.turnId) ??
-    readString(eventRecord.turn_id) ??
-    readString(eventRecord.runId) ??
-    readString(eventRecord.run_id) ??
-    readString(eventRecord.id) ??
-    deterministicTurnId(sessionIdentity.agent_id, sessionIdentity.session_id, messages);
-  const turnIndex =
-    readNonNegativeInteger(eventRecord.turnIndex) ??
-    readNonNegativeInteger(eventRecord.turn_index) ??
-    runtime.nextTurnIndex(sessionIdentity.session_id);
-
-  return {
-    agent_id: sessionIdentity.agent_id,
-    session_id: sessionIdentity.session_id,
-    turn_id: turnId,
-    turn_index: turnIndex
-  };
-}
-
-export function resolveOpenClawSessionIdentity(event: unknown, ctx: unknown): OpenClawSessionIdentity {
-  const eventRecord = isRecord(event) ? event : {};
+export function resolveOpenClawSessionIdentity(_event: unknown, ctx: unknown): OpenClawSessionIdentity | undefined {
   const ctxRecord = isRecord(ctx) ? ctx : {};
-  const agentId =
-    readString(ctxRecord.agentId) ??
-    readString(eventRecord.agentId) ??
-    readString(eventRecord.agent_id) ??
-    "openclaw-default-agent";
+  const agentId = readString(ctxRecord.agentId);
   const sessionId =
     readString(ctxRecord.sessionKey) ??
-    readString(ctxRecord.sessionId) ??
-    readString(eventRecord.sessionKey) ??
-    readString(eventRecord.sessionId) ??
-    readString(eventRecord.session_id) ??
-    "openclaw-default-session";
+    readString(ctxRecord.sessionId);
+
+  if (!agentId || !sessionId) return undefined;
 
   return {
     agent_id: agentId,
@@ -126,9 +90,9 @@ export function formatContextBlockForOpenClaw(block: {
 
 export { normalizeHostTurn };
 
-function extractMessageText(message: Record<string, unknown>): string {
+function extractMessageText(message: Record<string, unknown>): { text: string; stripped_count: number } {
   const content = message.content;
-  if (typeof content === "string") return stripLeadingPartnerMemContextBlocks(content);
+  if (typeof content === "string") return removePartnerMemInjectedContext(content);
   if (Array.isArray(content)) {
     const text = content
       .map((block) => {
@@ -137,10 +101,10 @@ function extractMessageText(message: Record<string, unknown>): string {
         return block.type === "text" && typeof block.text === "string" ? block.text : "";
       })
       .join("");
-    return stripLeadingPartnerMemContextBlocks(text);
+    return removePartnerMemInjectedContext(text);
   }
 
-  return stripLeadingPartnerMemContextBlocks(readString(message.text) ?? readString(message.message) ?? "");
+  return removePartnerMemInjectedContext(readString(message.text) ?? readString(message.message) ?? "");
 }
 
 const INTERNAL_VISIBILITY_VALUES = new Set([
@@ -176,20 +140,21 @@ function isScreenVisibleRecord(record: Record<string, unknown>): boolean {
   return true;
 }
 
-function stripLeadingPartnerMemContextBlocks(text: string): string {
+export function removePartnerMemInjectedContext(text: string): { text: string; stripped_count: number } {
   const lines = text.split(/\r?\n/u);
+  const keptLines: string[] = [];
   let index = 0;
-  let removed = false;
+  let strippedCount = 0;
 
   while (index < lines.length) {
-    while (index < lines.length && lines[index]?.trim() === "") {
+    const header = lines[index]?.trim();
+    if (!header || !PARTNER_MEM_CONTEXT_HEADERS.has(header)) {
+      keptLines.push(lines[index] ?? "");
       index += 1;
+      continue;
     }
 
-    const header = lines[index]?.trim();
-    if (!header || !PARTNER_MEM_CONTEXT_HEADERS.has(header)) break;
-
-    removed = true;
+    strippedCount += 1;
     index += 1;
 
     while (index < lines.length) {
@@ -203,27 +168,10 @@ function stripLeadingPartnerMemContextBlocks(text: string): string {
     }
   }
 
-  if (!removed) return text;
-
-  while (index < lines.length && lines[index]?.trim() === "") {
-    index += 1;
-  }
-
-  return lines.slice(index).join("\n");
-}
-
-function deterministicTurnId(agentId: string, sessionId: string, messages: RawMessageInput[]): string {
-  return `openclaw-${hashText(
-    JSON.stringify({
-      agentId,
-      sessionId,
-      messages: messages.map((message) => ({
-        role: message.role,
-        text: message.text,
-        message_index: message.message_index
-      }))
-    })
-  )}`;
+  return {
+    text: keptLines.join("\n"),
+    stripped_count: strippedCount
+  };
 }
 
 function readString(value: unknown): string | undefined {

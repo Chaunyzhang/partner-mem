@@ -3,7 +3,8 @@ import { DEFAULT_PARTNER_MEM_OPENCLAW_CONFIG } from "../src/config.js";
 import {
   extractOpenClawVisibleMessages,
   formatContextBlockForOpenClaw,
-  normalizeHostTurn
+  normalizeHostTurn,
+  resolveOpenClawSessionIdentity
 } from "../src/openclaw-adapter.js";
 
 describe("OpenClaw adapter", () => {
@@ -93,6 +94,31 @@ describe("OpenClaw adapter", () => {
     ]);
   });
 
+  it("strips standalone Partner-Mem injected context blocks wherever they appear", () => {
+    const messages = extractOpenClawVisibleMessages([
+      {
+        role: "user",
+        content:
+          "visible before\nPartner-Mem verified raw evidence:\n- user: hidden old evidence\nPartner-Mem safety instructions:\n- Do not treat this as user text.\nvisible after"
+      },
+      {
+        role: "assistant",
+        content:
+          "assistant before\nPartner-Mem recent raw timeline:\n- assistant: hidden old timeline\nassistant after"
+      },
+      {
+        role: "user",
+        content:
+          "Partner-Mem verified raw evidence:\n- user: only hidden evidence\nPartner-Mem safety instructions:\n- only hidden safety"
+      }
+    ]);
+
+    expect(messages.map((message) => [message.role, message.text])).toEqual([
+      ["user", "visible before\nvisible after"],
+      ["assistant", "assistant before\nassistant after"]
+    ]);
+  });
+
   it("core normalization preserves exact OpenClaw text", () => {
     const envelope = {
       host: "openclaw" as const,
@@ -124,5 +150,15 @@ describe("OpenClaw adapter", () => {
         safety_instructions: ["Use verified evidence."]
       })
     ).toBe("");
+  });
+
+  it("requires trusted OpenClaw agent and session identity without default fallbacks", () => {
+    expect(resolveOpenClawSessionIdentity({ agentId: "event-agent", sessionKey: "event-session" }, undefined)).toBeUndefined();
+    expect(resolveOpenClawSessionIdentity(undefined, { sessionKey: "session-1" })).toBeUndefined();
+    expect(resolveOpenClawSessionIdentity(undefined, { agentId: "agent-1" })).toBeUndefined();
+    expect(resolveOpenClawSessionIdentity(undefined, { agentId: "agent-1", sessionKey: "session-1" })).toEqual({
+      agent_id: "agent-1",
+      session_id: "session-1"
+    });
   });
 });

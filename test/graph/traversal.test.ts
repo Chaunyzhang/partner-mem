@@ -106,6 +106,7 @@ describe("GraphTraversal", () => {
       max_depth: 2,
       agent_id: "agent-1"
     });
+    // Core/admin-only traversal switch; 保留为历史事实，不参与决策 for ordinary tools.
     const allowed = new GraphTraversal(store).walkEvidencePaths("decision-cross-agent", {
       max_depth: 2,
       agent_id: "agent-1",

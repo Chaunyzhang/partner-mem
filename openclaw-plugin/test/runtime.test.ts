@@ -12,6 +12,8 @@ import { createPartnerMemOpenClawRuntime } from "../src/runtime.js";
 describe("Partner-Mem OpenClaw runtime and config", () => {
   it("returns config defaults and accepts valid overrides without enabling summary auto-build", () => {
     expect(readPartnerMemOpenClawConfig({})).toEqual(DEFAULT_PARTNER_MEM_OPENCLAW_CONFIG);
+    expect(DEFAULT_PARTNER_MEM_OPENCLAW_CONFIG.captureFlushMaxTurns).toBe(2);
+    expect(readPartnerMemOpenClawConfig({}).captureFlushMaxTurns).toBe(2);
 
     const config = readPartnerMemOpenClawConfig({
       dbPath: "/tmp/partner-mem-openclaw.db",

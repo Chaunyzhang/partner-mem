@@ -21,7 +21,7 @@ describe("Partner-Mem OpenClaw plugin entry", () => {
 
   it("registers service, tools, hooks, and memory capability without context engine or aliases", async () => {
     const services: Array<{ id: string; stop?: () => void }> = [];
-    const tools: Array<{ name: string }> = [];
+    const tools: Array<{ registration: unknown; opts?: { name?: string; names?: string[] } }> = [];
     const hooks: string[] = [];
     const memoryCapabilities: unknown[] = [];
     let contextEngineCalls = 0;
@@ -33,8 +33,8 @@ describe("Partner-Mem OpenClaw plugin entry", () => {
       registerService(service: { id: string; stop?: () => void }) {
         services.push(service);
       },
-      registerTool(tool: { name: string }) {
-        tools.push(tool);
+      registerTool(registration: unknown, opts?: { name?: string; names?: string[] }) {
+        tools.push({ registration, opts });
       },
       registerMemoryCapability(capability: unknown) {
         memoryCapabilities.push(capability);
@@ -52,7 +52,13 @@ describe("Partner-Mem OpenClaw plugin entry", () => {
 
     try {
       expect(services.map((service) => service.id)).toEqual(["partner-mem"]);
-      expect(tools.map((tool) => tool.name)).toEqual([
+      expect(tools.map((tool) => typeof tool.registration)).toEqual([
+        "function",
+        "function",
+        "function",
+        "function"
+      ]);
+      expect(tools.map((tool) => tool.opts?.name)).toEqual([
         "partner_mem_search",
         "partner_mem_recall",
         "partner_mem_timeline",
@@ -61,8 +67,8 @@ describe("Partner-Mem OpenClaw plugin entry", () => {
       expect(hooks).toEqual(["agent_end", "before_prompt_build"]);
       expect(memoryCapabilities).toHaveLength(1);
       expect(contextEngineCalls).toBe(0);
-      expect(tools.map((tool) => tool.name)).not.toContain("memory_search");
-      expect(tools.map((tool) => tool.name)).not.toContain("memory_recall");
+      expect(tools.map((tool) => tool.opts?.name)).not.toContain("memory_search");
+      expect(tools.map((tool) => tool.opts?.name)).not.toContain("memory_recall");
     } finally {
       services[0]?.stop?.();
     }

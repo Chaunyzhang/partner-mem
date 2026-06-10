@@ -68,6 +68,34 @@ describe("Partner-Mem OpenClaw hooks", () => {
     }
   });
 
+  it("skips capture without writing default-agent memory when trusted identity is missing", () => {
+    const warnings: unknown[] = [];
+    const runtime = createTempRuntime({
+      logger: { warn: (_message: string, meta?: unknown) => warnings.push(meta) }
+    });
+    try {
+      captureAgentEnd(
+        {
+          runId: "run-1",
+          success: true,
+          messages: [
+            { role: "user", content: "missing identity user text", message_index: 0 },
+            { role: "assistant", content: "missing identity assistant text", message_index: 1 }
+          ]
+        },
+        {},
+        runtime
+      );
+
+      expect(countRuntimeRows(runtime, "memory_nodes")).toBe(0);
+      expect(countRuntimeRows(runtime, "raw_payloads")).toBe(0);
+      expect(warnings.length).toBeGreaterThan(0);
+      expect(JSON.stringify(warnings)).toContain("trusted OpenClaw identity");
+    } finally {
+      cleanupRuntime(runtime);
+    }
+  });
+
   it("filters channel conversation metadata before buffering captured turns", () => {
     const runtime = createTempRuntime();
     const originalIngest = runtime.ingest.ingestTurn;
@@ -106,6 +134,64 @@ describe("Partner-Mem OpenClaw hooks", () => {
       ]);
     } finally {
       runtime.ingest.ingestTurn = originalIngest;
+      cleanupRuntime(runtime);
+    }
+  });
+
+  it("strips injected Partner-Mem context before raw capture and logs only stripped counts", () => {
+    const debugLogs: Array<{ message: string; meta?: unknown }> = [];
+    const runtime = createTempRuntime({
+      logger: { debug: (message: string, meta?: unknown) => debugLogs.push({ message, meta }) }
+    });
+    try {
+      captureAgentEnd(
+        {
+          runId: "run-1",
+          success: true,
+          messages: [
+            {
+              role: "user",
+              content:
+                "visible before\nPartner-Mem verified raw evidence:\n- user: hidden old evidence\nPartner-Mem recent raw timeline:\n- assistant: hidden old timeline\nvisible after",
+              message_index: 0
+            },
+            {
+              role: "assistant",
+              content:
+                "Partner-Mem safety instructions:\n- hidden safety instruction\nassistant visible after context",
+              message_index: 1
+            },
+            {
+              role: "user",
+              content:
+                "Partner-Mem verified raw evidence:\n- user: only hidden evidence\nPartner-Mem safety instructions:\n- only hidden safety",
+              message_index: 2
+            }
+          ]
+        },
+        { agentId: "agent-1", sessionKey: "session-1" },
+        runtime
+      );
+
+      expect(timelineTexts(runtime, "agent-1", "session-1")).toEqual([
+        "visible before\nvisible after",
+        "assistant visible after context"
+      ]);
+      expect(
+        runtime.facade.partner_mem_search({
+          query: "Partner-Mem",
+          agent_id: "agent-1",
+          session_id: "session-1",
+          limit: 10
+        })
+      ).toEqual([]);
+      expect(countRuntimeRows(runtime, "raw_payloads")).toBe(2);
+      expect(JSON.stringify(debugLogs)).toContain("injection_stripped_count");
+      expect(JSON.stringify(debugLogs)).toContain("\"injection_stripped_count\":5");
+      expect(JSON.stringify(debugLogs)).not.toContain("hidden old evidence");
+      expect(JSON.stringify(debugLogs)).not.toContain("hidden old timeline");
+      expect(JSON.stringify(debugLogs)).not.toContain("hidden safety instruction");
+    } finally {
       cleanupRuntime(runtime);
     }
   });
@@ -195,8 +281,113 @@ describe("Partner-Mem OpenClaw hooks", () => {
     }
   });
 
+  it("uses the default two complete turns before capture flushes", () => {
+    const runtime = createTempRuntime({ useDefaultCaptureFlushMaxTurns: true });
+    try {
+      captureAgentEnd(
+        {
+          runId: "run-1",
+          success: true,
+          messages: [
+            { role: "user", content: "default threshold first user", message_index: 0 },
+            { role: "assistant", content: "default threshold first assistant", message_index: 1 }
+          ]
+        },
+        { agentId: "agent-1", sessionKey: "session-1" },
+        runtime
+      );
+
+      expect(timelineTexts(runtime, "agent-1", "session-1")).toEqual([]);
+
+      captureAgentEnd(
+        {
+          runId: "run-2",
+          success: true,
+          messages: [
+            { role: "user", content: "default threshold first user", message_index: 0 },
+            { role: "assistant", content: "default threshold first assistant", message_index: 1 },
+            { role: "user", content: "default threshold second user", message_index: 2 },
+            { role: "assistant", content: "default threshold second assistant", message_index: 3 }
+          ]
+        },
+        { agentId: "agent-1", sessionKey: "session-1" },
+        runtime
+      );
+
+      expect(timelineTexts(runtime, "agent-1", "session-1")).toEqual([
+        "default threshold first user",
+        "default threshold first assistant",
+        "default threshold second user",
+        "default threshold second assistant"
+      ]);
+    } finally {
+      cleanupRuntime(runtime);
+    }
+  });
+
+  it("uses the default threshold to flush two user-only turns", () => {
+    const runtime = createTempRuntime({ useDefaultCaptureFlushMaxTurns: true });
+    try {
+      captureAgentEnd(
+        {
+          runId: "run-1",
+          success: true,
+          messages: [
+            { role: "user", content: "default user-only first", message_index: 0 }
+          ]
+        },
+        { agentId: "agent-1", sessionKey: "session-1" },
+        runtime
+      );
+
+      expect(timelineTexts(runtime, "agent-1", "session-1")).toEqual([]);
+
+      captureAgentEnd(
+        {
+          runId: "run-2",
+          success: true,
+          messages: [
+            { role: "user", content: "default user-only first", message_index: 0 },
+            { role: "user", content: "default user-only second", message_index: 1 }
+          ]
+        },
+        { agentId: "agent-1", sessionKey: "session-1" },
+        runtime
+      );
+
+      expect(timelineTexts(runtime, "agent-1", "session-1")).toEqual([
+        "default user-only first",
+        "default user-only second"
+      ]);
+    } finally {
+      cleanupRuntime(runtime);
+    }
+  });
+
+  it("does not write assistant-only messages with the default capture flush threshold", () => {
+    const runtime = createTempRuntime({ useDefaultCaptureFlushMaxTurns: true });
+    try {
+      captureAgentEnd(
+        {
+          runId: "run-1",
+          success: true,
+          messages: [
+            { role: "assistant", content: "assistant-only default threshold text", message_index: 0 },
+            { role: "assistant", content: "assistant-only default threshold follow-up", message_index: 1 }
+          ]
+        },
+        { agentId: "agent-1", sessionKey: "session-1" },
+        runtime
+      );
+
+      expect(timelineTexts(runtime, "agent-1", "session-1")).toEqual([]);
+    } finally {
+      cleanupRuntime(runtime);
+    }
+  });
+
   it("flushes one oversized complete turn as a whole pair when captureFlushMaxTokens is reached", () => {
-    const runtime = createTempRuntime({ captureFlushMaxTokens: 10, captureFlushMaxTurns: 7 });
+    const runtime = createTempRuntime({ captureFlushMaxTokens: 10, captureFlushMaxTurns: 99 });
     try {
       captureAgentEnd(
         {
@@ -220,7 +411,7 @@ describe("Partner-Mem OpenClaw hooks", () => {
     }
   });
 
-  it("keeps a trailing user-only incomplete turn pending until the assistant reply appears", () => {
+  it("persists a user-only turn when the threshold allows flush", () => {
     const runtime = createTempRuntime();
     try {
       captureAgentEnd(
@@ -233,7 +424,7 @@ describe("Partner-Mem OpenClaw hooks", () => {
         runtime
       );
 
-      expect(timelineTexts(runtime, "agent-1", "session-1")).toEqual([]);
+      expect(timelineTexts(runtime, "agent-1", "session-1")).toEqual(["pending user only"]);
 
       captureAgentEnd(
         {
@@ -248,9 +439,80 @@ describe("Partner-Mem OpenClaw hooks", () => {
         runtime
       );
 
+      expect(timelineTexts(runtime, "agent-1", "session-1")).toEqual(["pending user only"]);
+    } finally {
+      cleanupRuntime(runtime);
+    }
+  });
+
+  it("groups multiple assistant replies with the preceding user and starts a new user-only turn", () => {
+    const runtime = createTempRuntime();
+    const originalIngest = runtime.ingest.ingestTurn;
+    const calls: Parameters<typeof runtime.ingest.ingestTurn>[0][] = [];
+    runtime.ingest.ingestTurn = (input) => {
+      calls.push(input);
+      return originalIngest.call(runtime.ingest, input);
+    };
+
+    try {
+      captureAgentEnd(
+        {
+          runId: "run-1",
+          success: true,
+          messages: [
+            { role: "user", content: "group user 1", message_index: 10 },
+            { role: "assistant", content: "group assistant 2", message_index: 11 },
+            { role: "assistant", content: "group assistant 3", message_index: 12 },
+            { role: "assistant", content: "group assistant 4", message_index: 13 },
+            { role: "user", content: "group user a", message_index: 14 }
+          ]
+        },
+        { agentId: "agent-1", sessionKey: "session-1" },
+        runtime
+      );
+
+      expect(calls.map((call) => ({
+        turn_index: call.turn_index,
+        messages: call.messages.map((message) => `${message.role}:${message.text}`)
+      }))).toEqual([
+        {
+          turn_index: 10,
+          messages: [
+            "user:group user 1",
+            "assistant:group assistant 2",
+            "assistant:group assistant 3",
+            "assistant:group assistant 4"
+          ]
+        },
+        {
+          turn_index: 14,
+          messages: ["user:group user a"]
+        }
+      ]);
+    } finally {
+      runtime.ingest.ingestTurn = originalIngest;
+      cleanupRuntime(runtime);
+    }
+  });
+
+  it("drops orphan assistant messages before a user-only turn", () => {
+    const runtime = createTempRuntime();
+    try {
+      captureAgentEnd(
+        {
+          runId: "run-1",
+          success: true,
+          messages: [
+            { role: "assistant", content: "orphan assistant must not persist", message_index: 0 },
+            { role: "user", content: "orphan-following user persists", message_index: 1 }
+          ]
+        },
+        { agentId: "agent-1", sessionKey: "session-1" },
+        runtime
+      );
+
       expect(timelineTexts(runtime, "agent-1", "session-1")).toEqual([
-        "pending user only",
-        "pending assistant reply"
+        "orphan-following user persists"
       ]);
     } finally {
       cleanupRuntime(runtime);
@@ -399,6 +661,58 @@ describe("Partner-Mem OpenClaw hooks", () => {
       await runtime.drainExtractionQueueForTests();
 
       expect(calls).toHaveLength(2);
+    } finally {
+      cleanupRuntime(runtime);
+    }
+  });
+
+  it("enqueues extraction after a user-only turn is captured", async () => {
+    const calls: unknown[] = [];
+    const runtime = createTempRuntime({
+      extractor: {
+        enabled: true,
+        provider: "openai-codex",
+        model: "gpt-test"
+      },
+      apiRuntime: {
+        agent: {
+          async runEmbeddedAgent(input: unknown) {
+            calls.push(input);
+            const prompt = typeof input === "object" && input !== null && "prompt" in input
+              ? String((input as { prompt: unknown }).prompt)
+              : JSON.stringify(input);
+            const rawNodeId = prompt.match(/"raw_node_id":\s*"([^"]+)"/u)?.[1] ?? "missing";
+            return {
+              payloads: [
+                {
+                  text: JSON.stringify({
+                    schema_version: "partner-mem.extraction.v1",
+                    raw_node_id: rawNodeId,
+                    items: []
+                  })
+                }
+              ]
+            };
+          }
+        }
+      },
+      apiConfig: { agents: { defaults: { model: "openai-codex/gpt-test" } } }
+    });
+    try {
+      captureAgentEnd(
+        {
+          runId: "run-1",
+          success: true,
+          messages: [
+            { role: "user", content: "Extract this user-only raw message.", message_index: 0 }
+          ]
+        },
+        { agentId: "agent-1", sessionKey: "session-1" },
+        runtime
+      );
+      await runtime.drainExtractionQueueForTests();
+
+      expect(calls).toHaveLength(1);
     } finally {
       cleanupRuntime(runtime);
     }
@@ -589,6 +903,42 @@ describe("Partner-Mem OpenClaw hooks", () => {
       expect(result?.appendContext).not.toContain("fake summary proof");
       expect(result).not.toHaveProperty("prependContext");
       expect(result).not.toHaveProperty("systemPrompt");
+    } finally {
+      cleanupRuntime(runtime);
+    }
+  });
+
+  it("skips auto recall injection when trusted identity is missing", () => {
+    const warnings: unknown[] = [];
+    const runtime = createTempRuntime({
+      logger: { warn: (_message: string, meta?: unknown) => warnings.push(meta) }
+    });
+    try {
+      captureAgentEnd(
+        {
+          runId: "run-1",
+          success: true,
+          messages: [
+            { role: "user", content: "identity guarded recall proof", message_index: 0 },
+            { role: "assistant", content: "identity guarded recall reply", message_index: 1 }
+          ]
+        },
+        { agentId: "agent-1", sessionKey: "session-1" },
+        runtime
+      );
+
+      const result = recallBeforePromptBuild(
+        {
+          prompt: "identity guarded",
+          messages: [{ role: "user", content: "identity guarded" }]
+        },
+        {},
+        runtime
+      );
+
+      expect(result).toBeUndefined();
+      expect(warnings.length).toBeGreaterThan(0);
+      expect(JSON.stringify(warnings)).toContain("trusted OpenClaw identity");
     } finally {
       cleanupRuntime(runtime);
     }
@@ -804,14 +1154,19 @@ describe("Partner-Mem OpenClaw hooks", () => {
 
 function createTempRuntime(
   overrides: Record<string, unknown> & {
-    logger?: { warn?: (message: string, meta?: unknown) => void };
+    logger?: {
+      debug?: (message: string, meta?: unknown) => void;
+      warn?: (message: string, meta?: unknown) => void;
+    };
     apiRuntime?: unknown;
     apiConfig?: unknown;
+    useDefaultCaptureFlushMaxTurns?: boolean;
   } = {}
 ) {
   const tempDir = mkdtempSync(join(tmpdir(), "partner-mem-openclaw-hooks-"));
   const dbPath = join(tempDir, "partner-mem.db");
-  const { apiRuntime, apiConfig, logger, ...configOverrides } = overrides;
+  const { apiRuntime, apiConfig, logger, useDefaultCaptureFlushMaxTurns, ...configOverrides } = overrides;
+  const testDefaults = useDefaultCaptureFlushMaxTurns ? {} : { captureFlushMaxTurns: 1 };
   const runtime = createPartnerMemOpenClawRuntime(
     {
       runtime: apiRuntime,
@@ -823,7 +1178,7 @@ function createTempRuntime(
       on: () => undefined,
       logger: logger ?? {}
     },
-    readPartnerMemOpenClawConfig({ captureFlushMaxTurns: 1, ...configOverrides, dbPath })
+    readPartnerMemOpenClawConfig({ ...testDefaults, ...configOverrides, dbPath })
   );
   return Object.assign(runtime, { __tempDir: tempDir, __dbPath: dbPath });
 }

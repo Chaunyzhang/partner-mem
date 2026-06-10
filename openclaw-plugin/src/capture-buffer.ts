@@ -66,7 +66,7 @@ export function collectFlushableTurns(
   identity: OpenClawCaptureIdentity,
   config: Pick<PartnerMemOpenClawConfig, "captureFlushMaxTokens" | "captureFlushMaxTurns">
 ): OpenClawCapturedTurn[] {
-  const completeTurns = collectCompleteTurnMessages(state.pendingMessages);
+  const completeTurns = collectUserAnchoredTurnMessages(state.pendingMessages);
   if (completeTurns.length === 0) return [];
 
   const completeMessages = completeTurns.flat();
@@ -95,10 +95,13 @@ export function markCaptureTurnsFlushed(
   const flushedIndexes = new Set(
     flushedTurns.flatMap((turn) => turn.messages.map((message) => message.message_index))
   );
-  state.pendingMessages = state.pendingMessages.filter((message) => !flushedIndexes.has(message.message_index));
+  const lastFlushedIndex = Math.max(...flushedIndexes);
+  state.pendingMessages = state.pendingMessages.filter(
+    (message) => message.message_index > lastFlushedIndex && !flushedIndexes.has(message.message_index)
+  );
 }
 
-function collectCompleteTurnMessages(messages: RawMessageInput[]): RawMessageInput[][] {
+function collectUserAnchoredTurnMessages(messages: RawMessageInput[]): RawMessageInput[][] {
   const turns: RawMessageInput[][] = [];
   let index = 0;
 
@@ -109,16 +112,11 @@ function collectCompleteTurnMessages(messages: RawMessageInput[]): RawMessageInp
     if (index >= messages.length) break;
 
     const turnStart = index;
-    while (index < messages.length && messages[index]?.role === "user") {
-      index += 1;
-    }
-
-    const assistantStart = index;
+    index += 1;
     while (index < messages.length && messages[index]?.role === "assistant") {
       index += 1;
     }
 
-    if (assistantStart === index) break;
     turns.push(messages.slice(turnStart, index));
   }
 

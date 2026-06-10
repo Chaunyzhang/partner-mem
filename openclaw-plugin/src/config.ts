@@ -32,7 +32,7 @@ export const DEFAULT_PARTNER_MEM_OPENCLAW_CONFIG: PartnerMemOpenClawConfig = {
   contextBudgetTokens: 1200,
   recallLimit: 4,
   captureFlushMaxTokens: 20000,
-  captureFlushMaxTurns: 7,
+  captureFlushMaxTurns: 2,
   captureMaxCharsPerMessage: 200000,
   auditRetentionMaxRows: 500,
   hookTimeoutMs: 12000,

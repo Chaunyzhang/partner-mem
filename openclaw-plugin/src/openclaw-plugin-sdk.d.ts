@@ -21,6 +21,8 @@ declare module "openclaw/plugin-sdk/plugin-entry" {
     isError?: boolean;
   }
 
+  export type AgentToolUpdateCallback<T = unknown> = (data: T) => void;
+
   export interface AnyAgentTool {
     name: string;
     label?: string;
@@ -29,8 +31,19 @@ declare module "openclaw/plugin-sdk/plugin-entry" {
     execute(
       toolCallId: string,
       params: unknown,
-      context?: OpenClawPluginToolContext
+      signal?: AbortSignal,
+      onUpdate?: AgentToolUpdateCallback<unknown>
     ): AgentToolResult | Promise<AgentToolResult>;
+  }
+
+  export type OpenClawPluginToolFactory = (
+    ctx: OpenClawPluginToolContext
+  ) => AnyAgentTool | AnyAgentTool[] | null | undefined;
+
+  export interface OpenClawPluginToolOptions {
+    name?: string;
+    names?: string[];
+    optional?: boolean;
   }
 
   export interface OpenClawPluginService {
@@ -53,7 +66,7 @@ declare module "openclaw/plugin-sdk/plugin-entry" {
     logger?: OpenClawLogger;
     resolvePath(input: string): string;
     registerService(service: OpenClawPluginService): void;
-    registerTool(toolOrFactory: AnyAgentTool, opts?: unknown): void;
+    registerTool(toolOrFactory: AnyAgentTool | OpenClawPluginToolFactory, opts?: OpenClawPluginToolOptions): void;
     registerMemoryCapability(capability: MemoryPluginCapability): void;
     on(hookName: string, handler: (event: unknown, ctx?: unknown) => unknown, opts?: unknown): void;
   }

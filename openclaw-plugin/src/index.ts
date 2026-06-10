@@ -3,7 +3,7 @@ import { readPartnerMemOpenClawConfig } from "./config.js";
 import { registerPartnerMemHooks } from "./hooks.js";
 import { createPartnerMemMemoryCapability } from "./memory-capability.js";
 import { createPartnerMemOpenClawRuntime } from "./runtime.js";
-import { createPartnerMemOpenClawTools } from "./tools.js";
+import { createPartnerMemOpenClawToolRegistrations } from "./tools.js";
 
 export default definePluginEntry({
   id: "partner-mem",
@@ -23,8 +23,8 @@ export default definePluginEntry({
       }
     });
 
-    for (const tool of createPartnerMemOpenClawTools(runtime)) {
-      api.registerTool(tool);
+    for (const { factory, opts } of createPartnerMemOpenClawToolRegistrations(runtime)) {
+      api.registerTool(factory, opts);
     }
 
     registerPartnerMemHooks(api, runtime);

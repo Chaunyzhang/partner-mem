@@ -13,8 +13,6 @@ export interface RecallQuery {
     until?: string;
   };
   limit: number;
-  /** When true, traversal may follow edges owned by other agents. Default false. */
-  allow_cross_agent?: boolean;
 }
 
 export interface TimelineQuery {
@@ -56,6 +54,7 @@ export class RecallRouter {
   recall(input: RecallQuery): EvidencePacket {
     const candidates = this.seedIndex.search(input);
     const evidenceItems: EvidenceItem[] = [];
+    const seenRawNodeIds = new Set<string>();
     const blockedPaths: EvidencePacket["blocked_paths"] = [];
 
     for (const candidate of candidates) {
@@ -64,9 +63,12 @@ export class RecallRouter {
         max_evidence_items: input.limit,
         agent_id: input.agent_id
       };
-      if (input.allow_cross_agent !== undefined) evidenceInput.allow_cross_agent = input.allow_cross_agent;
       const packet = this.resolver.resolveEvidence(evidenceInput);
-      evidenceItems.push(...packet.evidence_items);
+      for (const item of packet.evidence_items) {
+        if (seenRawNodeIds.has(item.raw_node_id)) continue;
+        evidenceItems.push(item);
+        seenRawNodeIds.add(item.raw_node_id);
+      }
       blockedPaths.push(...packet.blocked_paths);
       if (evidenceItems.length >= input.limit) break;
     }
