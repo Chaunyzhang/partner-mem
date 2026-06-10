@@ -5,6 +5,7 @@ import {
   NODE_STATUSES,
   NODE_TYPES,
   PATH_STATUSES,
+  REVISION_EDGE_TYPES,
   RESULT_CLASSES,
   assertEdgeClass,
   assertEvidenceEdgeType,
@@ -12,6 +13,7 @@ import {
   assertNodeType,
   assertPathStatus,
   assertResultClass,
+  assertRevisionEdgeType,
   isEvidenceEdgeType
 } from "../../src/core/contracts.js";
 import { hashText } from "../../src/core/hash.js";
@@ -24,6 +26,10 @@ describe("graph contracts", () => {
       expect(assertEvidenceEdgeType(value)).toBe(value);
       expect(isEvidenceEdgeType(value)).toBe(true);
     }
+    for (const value of REVISION_EDGE_TYPES) {
+      expect(assertRevisionEdgeType(value)).toBe(value);
+      expect(isEvidenceEdgeType(value)).toBe(false);
+    }
     for (const value of NODE_STATUSES) expect(assertNodeStatus(value)).toBe(value);
     for (const value of PATH_STATUSES) expect(assertPathStatus(value)).toBe(value);
     for (const value of RESULT_CLASSES) expect(assertResultClass(value)).toBe(value);
@@ -33,6 +39,7 @@ describe("graph contracts", () => {
     expect(() => assertNodeType("message")).toThrow(/Unknown NodeType/);
     expect(() => assertEdgeClass("proof")).toThrow(/Unknown EdgeClass/);
     expect(() => assertEvidenceEdgeType("RELATED_TO")).toThrow(/Unknown EvidenceEdgeType/);
+    expect(() => assertRevisionEdgeType("RAW_NEAR_RAW")).toThrow(/Unknown RevisionEdgeType/);
     expect(isEvidenceEdgeType("RELATED_TO")).toBe(false);
   });
 

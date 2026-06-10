@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import type { MemoryEdge, MemoryNode, RawPayload } from "../storage/graph-store.js";
+import type { MemoryEdge, MemoryNode, RawPayload, RawRevisionContext } from "../storage/graph-store.js";
 
 export const BLOCKED_REASONS = [
   "missing_node",
@@ -34,6 +34,7 @@ export interface EvidenceItem {
   message_index: number;
   source_hash: string;
   path: EvidencePathStep[];
+  revision_context?: RawRevisionContext;
 }
 
 export interface BlockedPath {
@@ -55,6 +56,7 @@ export interface VerifiedRawItem {
   node: MemoryNode;
   payload: RawPayload;
   path: MemoryEdge[];
+  revision_context?: RawRevisionContext;
 }
 
 export function buildEvidencePacket(
@@ -66,18 +68,22 @@ export function buildEvidencePacket(
   return {
     result_class: "evidence",
     query_id: queryId,
-    evidence_items: verifiedRawItems.map(({ node, payload, path }) => ({
-      raw_node_id: node.node_id,
-      role: payload.role,
-      text: payload.text,
-      observed_at: node.observed_at,
-      session_id: node.session_id,
-      turn_id: payload.turn_id,
-      turn_index: payload.turn_index,
-      message_index: payload.message_index,
-      source_hash: payload.source_hash,
-      path: path.map(toPathStep)
-    })),
+    evidence_items: verifiedRawItems.map(({ node, payload, path, revision_context }) => {
+      const item: EvidenceItem = {
+        raw_node_id: node.node_id,
+        role: payload.role,
+        text: payload.text,
+        observed_at: node.observed_at,
+        session_id: node.session_id,
+        turn_id: payload.turn_id,
+        turn_index: payload.turn_index,
+        message_index: payload.message_index,
+        source_hash: payload.source_hash,
+        path: path.map(toPathStep)
+      };
+      if (revision_context) item.revision_context = revision_context;
+      return item;
+    }),
     blocked_paths: blockedPaths,
     created_at: createdAt
   };

@@ -34,10 +34,21 @@ export const SEMANTIC_EDGE_TYPES = [
   "SIMILAR_TO",
   "CAUSED_BY",
   "USED_TOOL",
-  "SOLVED_BY"
+  "SOLVED_BY",
+  "correction",
+  "extension",
+  "contradiction"
 ] as const;
 
 export type SemanticEdgeType = (typeof SEMANTIC_EDGE_TYPES)[number];
+
+export const REVISION_EDGE_TYPES = [
+  "correction",
+  "extension",
+  "contradiction"
+] as const;
+
+export type RevisionEdgeType = (typeof REVISION_EDGE_TYPES)[number];
 
 export const TEMPORAL_EDGE_TYPES = ["FOLLOWS"] as const;
 export type TemporalEdgeType = (typeof TEMPORAL_EDGE_TYPES)[number];
@@ -95,6 +106,14 @@ export function assertEvidenceEdgeType(value: string): EvidenceEdgeType {
 
 export function isEvidenceEdgeType(value: string): value is EvidenceEdgeType {
   return (EVIDENCE_EDGE_TYPES as readonly string[]).includes(value);
+}
+
+export function assertRevisionEdgeType(value: string): RevisionEdgeType {
+  return assertAllowedValue(value, REVISION_EDGE_TYPES, "RevisionEdgeType");
+}
+
+export function isRevisionEdgeType(value: string): value is RevisionEdgeType {
+  return (REVISION_EDGE_TYPES as readonly string[]).includes(value);
 }
 
 export function assertNodeStatus(value: string): NodeStatus {

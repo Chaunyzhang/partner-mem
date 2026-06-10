@@ -77,6 +77,56 @@ describe("RecallRouter", () => {
     expect(packet.evidence_items.map((item) => item.text)).toEqual(["windowed recall target new"]);
   });
 
+  it("adds revision context so recalled old evidence points at the current correction", () => {
+    const store = createInitializedStore();
+    const service = new RawIngestService(store);
+    service.ingestTurn({
+      agent_id: "agent-1",
+      session_id: "session-1",
+      turn_id: "turn-1",
+      turn_index: 0,
+      messages: [
+        {
+          role: "user",
+          text: "Project Quartz plan A",
+          observed_at: "2026-01-01T00:00:00.000Z",
+          message_index: 0
+        }
+      ]
+    });
+    service.ingestTurn({
+      agent_id: "agent-1",
+      session_id: "session-1",
+      turn_id: "turn-2",
+      turn_index: 1,
+      messages: [
+        {
+          role: "user",
+          text: "Project Quartz change plan B",
+          observed_at: "2026-01-02T00:00:00.000Z",
+          message_index: 0
+        }
+      ]
+    });
+
+    const packet = new RecallRouter(store).recall({
+      query: "Project Quartz plan",
+      agent_id: "agent-1",
+      limit: 5
+    });
+    const oldEvidence = packet.evidence_items.find((item) => item.text === "Project Quartz plan A");
+    if (!oldEvidence) throw new Error("missing old evidence");
+
+    expect(oldEvidence.revision_context?.topic_group).toBe("topic_project_quartz");
+    expect(oldEvidence.revision_context?.sequence).toBe(1);
+    expect(oldEvidence.revision_context?.current_effective_text).toBe("Project Quartz change plan B");
+    expect(oldEvidence.revision_context?.is_current_effective).toBe(false);
+    expect(oldEvidence.revision_context?.chain.map((step) => step.relation_to_previous)).toEqual([
+      null,
+      "correction"
+    ]);
+  });
+
   it("returns candidate-only or blocked when an FTS entity seed has no valid evidence path", () => {
     const store = createInitializedStore();
     const contentHash = hashText("entity without proof");

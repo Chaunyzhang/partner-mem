@@ -17,10 +17,22 @@ CREATE TABLE IF NOT EXISTS memory_nodes (
   valid_from TEXT,
   valid_to TEXT,
   invalidated_at TEXT,
+  topic_group TEXT,
+  sequence INTEGER,
+  supersedes TEXT,
+  superseded_by TEXT,
   content_hash TEXT NOT NULL,
   metadata_json TEXT NOT NULL DEFAULT '{}',
+  FOREIGN KEY (supersedes) REFERENCES memory_nodes(node_id) ON DELETE SET NULL,
+  FOREIGN KEY (superseded_by) REFERENCES memory_nodes(node_id) ON DELETE SET NULL,
   CHECK (node_type IN ('raw_message', 'summary', 'entity', 'task', 'event', 'decision', 'artifact')),
-  CHECK (status IN ('active', 'invalidated'))
+  CHECK (status IN ('active', 'invalidated')),
+  CHECK (
+    (topic_group IS NULL AND sequence IS NULL) OR
+    (topic_group IS NOT NULL AND sequence IS NOT NULL AND sequence > 0)
+  ),
+  CHECK (supersedes IS NULL OR supersedes <> node_id),
+  CHECK (superseded_by IS NULL OR superseded_by <> node_id)
 );
 
 CREATE INDEX IF NOT EXISTS idx_memory_nodes_agent_session
@@ -59,6 +71,9 @@ CREATE TABLE IF NOT EXISTS memory_edges (
     'CAUSED_BY',
     'USED_TOOL',
     'SOLVED_BY',
+    'correction',
+    'extension',
+    'contradiction',
     'FOLLOWS',
     'INDEXES',
     'ROLLS_UP'

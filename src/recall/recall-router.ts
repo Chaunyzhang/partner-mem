@@ -68,7 +68,7 @@ export class RecallRouter {
 
     const packet = {
       ...buildEvidencePacket([], blockedPaths, randomUUID()),
-      evidence_items: evidenceItems.slice(0, input.limit)
+      evidence_items: evidenceItems.slice(0, input.limit).map((item) => this.withRevisionContext(item))
     };
     this.store.insertRetrievalRun({
       run_id: randomUUID(),
@@ -88,18 +88,26 @@ export class RecallRouter {
     const rows = this.store.listRawTimeline(input);
     return {
       result_class: "evidence",
-      evidence_items: rows.map(({ node, payload }) => ({
-        raw_node_id: node.node_id,
-        role: payload.role,
-        text: payload.text,
-        observed_at: node.observed_at,
-        session_id: node.session_id,
-        turn_id: payload.turn_id,
-        turn_index: payload.turn_index,
-        message_index: payload.message_index,
-        source_hash: payload.source_hash,
-        path: []
-      }))
+      evidence_items: rows.map(({ node, payload }) =>
+        this.withRevisionContext({
+          raw_node_id: node.node_id,
+          role: payload.role,
+          text: payload.text,
+          observed_at: node.observed_at,
+          session_id: node.session_id,
+          turn_id: payload.turn_id,
+          turn_index: payload.turn_index,
+          message_index: payload.message_index,
+          source_hash: payload.source_hash,
+          path: []
+        })
+      )
     };
+  }
+
+  private withRevisionContext(item: EvidenceItem): EvidenceItem {
+    const revisionContext = this.store.getRawRevisionContext(item.raw_node_id);
+    if (!revisionContext) return item;
+    return { ...item, revision_context: revisionContext };
   }
 }
