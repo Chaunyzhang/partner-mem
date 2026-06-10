@@ -135,6 +135,7 @@ function logNonMainConversation(runtime: PartnerMemOpenClawRuntime, operation: "
 }
 
 const MAIN_CONVERSATION_VALUES = new Set(["main", "primary", "chat"]);
+const MAIN_TRIGGER_VALUES = new Set(["manual", "user"]);
 const NON_MAIN_CONVERSATION_VALUES = new Set([
   "background",
   "embedded",
@@ -142,6 +143,17 @@ const NON_MAIN_CONVERSATION_VALUES = new Set([
   "subagent",
   "tool",
   "worker"
+]);
+const NON_MAIN_TRIGGER_VALUES = new Set([
+  "automatic",
+  "background",
+  "cron",
+  "diagnostics",
+  "doctor-fix",
+  "heartbeat",
+  "scheduled",
+  "system",
+  "timer"
 ]);
 
 function isMainConversation(event: unknown, ctx: unknown): boolean {
@@ -152,6 +164,8 @@ function isMainConversation(event: unknown, ctx: unknown): boolean {
 
 function hasMainConversationMarker(record: Record<string, unknown>): boolean {
   if (record.isMainConversation === true || record.isMainSession === true) return true;
+  const trigger = readString(record.trigger)?.toLowerCase();
+  if (trigger && MAIN_TRIGGER_VALUES.has(trigger)) return true;
   return conversationKindValues(record).some((value) => MAIN_CONVERSATION_VALUES.has(value));
 }
 
@@ -161,7 +175,21 @@ function hasNonMainConversationMarker(record: Record<string, unknown>): boolean 
   }
   if (record.isMainConversation === false || record.isMainSession === false) return true;
   if (readString(record.parentRunId) || readString(record.parentSessionId)) return true;
+  if (hasOpenClawSubagentSessionKey(record)) return true;
+  const trigger = readString(record.trigger)?.toLowerCase();
+  if (trigger && NON_MAIN_TRIGGER_VALUES.has(trigger)) return true;
   return conversationKindValues(record).some((value) => NON_MAIN_CONVERSATION_VALUES.has(value));
+}
+
+function hasOpenClawSubagentSessionKey(record: Record<string, unknown>): boolean {
+  return ["sessionKey", "sessionId", "session_id"].some((key) => {
+    const value = readString(record[key]);
+    return value ? isOpenClawSubagentSessionKey(value) : false;
+  });
+}
+
+function isOpenClawSubagentSessionKey(value: string): boolean {
+  return /^agent:[^:]+:subagent:[^:]+$/u.test(value);
 }
 
 function conversationKindValues(record: Record<string, unknown>): string[] {

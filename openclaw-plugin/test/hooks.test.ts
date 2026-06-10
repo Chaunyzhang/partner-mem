@@ -555,6 +555,101 @@ describe("Partner-Mem OpenClaw hooks", () => {
     }
   });
 
+  it("accepts OpenClaw user-triggered hook context as the main conversation", () => {
+    const runtime = createTempRuntime({ autoRecall: true, captureFlushMaxTurns: 2 });
+    try {
+      captureAgentEnd(
+        {
+          runId: "run-1",
+          success: true,
+          messages: [
+            { role: "user", content: "real OpenClaw trigger user one", message_index: 0 },
+            { role: "assistant", content: "real OpenClaw trigger assistant one", message_index: 1 }
+          ]
+        },
+        openClawUserCtx("session-1"),
+        runtime
+      );
+      captureAgentEnd(
+        {
+          runId: "run-2",
+          success: true,
+          messages: [
+            { role: "user", content: "real OpenClaw trigger user one", message_index: 0 },
+            { role: "assistant", content: "real OpenClaw trigger assistant one", message_index: 1 },
+            { role: "user", content: "real OpenClaw trigger user two", message_index: 2 },
+            { role: "assistant", content: "real OpenClaw trigger assistant two", message_index: 3 }
+          ]
+        },
+        openClawUserCtx("session-1"),
+        runtime
+      );
+
+      const recall = recallBeforePromptBuild(
+        {
+          prompt: "real OpenClaw trigger",
+          messages: [{ role: "user", content: "real OpenClaw trigger" }]
+        },
+        openClawUserCtx("session-1"),
+        runtime
+      );
+
+      expect(timelineTexts(runtime, "agent-1", "session-1")).toEqual([
+        "real OpenClaw trigger user one",
+        "real OpenClaw trigger assistant one",
+        "real OpenClaw trigger user two",
+        "real OpenClaw trigger assistant two"
+      ]);
+      expect(recall?.appendContext).toContain("real OpenClaw trigger user one");
+    } finally {
+      cleanupRuntime(runtime);
+    }
+  });
+
+  it("rejects OpenClaw subagent session keys even when trigger is user", () => {
+    const runtime = createTempRuntime({ captureFlushMaxTurns: 1 });
+    try {
+      captureAgentEnd(
+        {
+          runId: "subagent-run-1",
+          success: true,
+          messages: [
+            { role: "user", content: "OpenClaw subagent trigger user should not persist", message_index: 0 },
+            { role: "assistant", content: "OpenClaw subagent trigger assistant should not persist", message_index: 1 }
+          ]
+        },
+        openClawUserCtx("agent:worker-agent:subagent:1234"),
+        runtime
+      );
+
+      expect(timelineTexts(runtime, "agent-1", "agent:worker-agent:subagent:1234")).toEqual([]);
+    } finally {
+      cleanupRuntime(runtime);
+    }
+  });
+
+  it("rejects OpenClaw non-user automatic triggers", () => {
+    const runtime = createTempRuntime({ captureFlushMaxTurns: 1 });
+    try {
+      captureAgentEnd(
+        {
+          runId: "cron-run-1",
+          success: true,
+          messages: [
+            { role: "user", content: "cron trigger should not persist", message_index: 0 },
+            { role: "assistant", content: "cron trigger assistant should not persist", message_index: 1 }
+          ]
+        },
+        { agentId: "agent-1", sessionKey: "session-1", trigger: "cron" },
+        runtime
+      );
+
+      expect(timelineTexts(runtime, "agent-1", "session-1")).toEqual([]);
+    } finally {
+      cleanupRuntime(runtime);
+    }
+  });
+
   it("does not enqueue extraction when disabled and before_prompt_build never calls the model", async () => {
     const calls: unknown[] = [];
     const runtime = createTempRuntime({
@@ -993,6 +1088,10 @@ function timelineTexts(runtime: ReturnType<typeof createTempRuntime>, agentId: s
 
 function mainCtx(sessionKey: string): { agentId: string; sessionKey: string; conversationKind: "main" } {
   return { agentId: "agent-1", sessionKey, conversationKind: "main" };
+}
+
+function openClawUserCtx(sessionKey: string): { agentId: string; sessionKey: string; trigger: "user" } {
+  return { agentId: "agent-1", sessionKey, trigger: "user" };
 }
 
 function countRuntimeRows(runtime: ReturnType<typeof createTempRuntime>, tableName: string): number {
