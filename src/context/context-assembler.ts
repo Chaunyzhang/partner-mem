@@ -26,20 +26,15 @@ export class ContextAssembler {
   ) {}
 
   assembleContext(request: ContextAssemblyRequest): ContextBlock {
-    const budget = Math.min(request.budget_tokens, this.config.context.maxTokens);
     const omitted: string[] = [];
-    const recent_raw_timeline = request.include_recent
-      ? this.facade.partner_mem_timeline({
-          agent_id: request.agent_id,
-          limit: Math.min(this.config.context.recentMessages, budget)
-        }).evidence_items
-      : [];
+    const recent_raw_timeline: EvidenceItem[] = [];
 
     const verified_evidence =
       request.auto_recall && this.config.context.autoRecallEnabled && request.current_prompt
         ? this.facade.partner_mem_recall({
             query: request.current_prompt,
             agent_id: request.agent_id,
+            ...(request.session_id ? { session_id: request.session_id } : {}),
             limit: this.config.context.evidenceMaxItems
           }).evidence_items
         : [];

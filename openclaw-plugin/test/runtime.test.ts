@@ -16,10 +16,9 @@ describe("Partner-Mem OpenClaw runtime and config", () => {
     const config = readPartnerMemOpenClawConfig({
       dbPath: "/tmp/partner-mem-openclaw.db",
       autoCapture: false,
-      autoRecall: false,
+      autoRecall: true,
       contextBudgetTokens: 2000,
       recallLimit: 6,
-      captureFlushMaxTokens: 30000,
       captureFlushMaxTurns: 12,
       captureMaxCharsPerMessage: 300000,
       auditRetentionMaxRows: 250,
@@ -28,9 +27,12 @@ describe("Partner-Mem OpenClaw runtime and config", () => {
     const coreConfig = createPartnerMemCoreConfig(config);
 
     expect(DEFAULT_PARTNER_MEM_OPENCLAW_CONFIG.auditRetentionMaxRows).toBe(500);
+    expect(DEFAULT_PARTNER_MEM_OPENCLAW_CONFIG.autoRecall).toBe(false);
+    expect(DEFAULT_PARTNER_MEM_OPENCLAW_CONFIG.captureFlushMaxTurns).toBe(2);
+    expect(DEFAULT_PARTNER_MEM_OPENCLAW_CONFIG).not.toHaveProperty("captureFlushMaxTokens");
     expect(config.autoCapture).toBe(false);
+    expect(config.autoRecall).toBe(true);
     expect(config.recallLimit).toBe(6);
-    expect(config.captureFlushMaxTokens).toBe(30000);
     expect(config.captureFlushMaxTurns).toBe(12);
     expect(config.captureMaxCharsPerMessage).toBe(300000);
     expect(config.auditRetentionMaxRows).toBe(250);
@@ -40,10 +42,13 @@ describe("Partner-Mem OpenClaw runtime and config", () => {
 
   it("rejects invalid numeric config values", () => {
     expect(() => readPartnerMemOpenClawConfig({ hookTimeoutMs: 999999 })).toThrow(TypeError);
-    expect(() => readPartnerMemOpenClawConfig({ captureFlushMaxTokens: 0 })).toThrow(TypeError);
     expect(() => readPartnerMemOpenClawConfig({ captureFlushMaxTurns: 101 })).toThrow(TypeError);
     expect(() => readPartnerMemOpenClawConfig({ captureMaxCharsPerMessage: 999 })).toThrow(TypeError);
     expect(() => readPartnerMemOpenClawConfig({ auditRetentionMaxRows: -1 })).toThrow(TypeError);
+  });
+
+  it("rejects deleted token-threshold config", () => {
+    expect(() => readPartnerMemOpenClawConfig({ captureFlushMaxTokens: 30000 })).toThrow("captureFlushMaxTokens");
   });
 
   it("initializes an on-disk database and status does not expose the path", () => {

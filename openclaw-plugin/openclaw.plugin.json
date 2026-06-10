@@ -37,11 +37,6 @@
         "minimum": 1,
         "maximum": 50
       },
-      "captureFlushMaxTokens": {
-        "type": "integer",
-        "minimum": 1,
-        "maximum": 200000
-      },
       "captureFlushMaxTurns": {
         "type": "integer",
         "minimum": 1,

@@ -57,25 +57,15 @@ export function appendCaptureMessages(state: OpenClawCaptureState, messages: Raw
   state.pendingMessages.sort((left, right) => left.message_index - right.message_index);
 }
 
-export function estimateCaptureTokens(messages: RawMessageInput[]): number {
-  return messages.reduce((sum, message) => sum + message.text.length, 0);
-}
-
 export function collectFlushableTurns(
   state: OpenClawCaptureState,
   identity: OpenClawCaptureIdentity,
-  config: Pick<PartnerMemOpenClawConfig, "captureFlushMaxTokens" | "captureFlushMaxTurns">
+  config: Pick<PartnerMemOpenClawConfig, "captureFlushMaxTurns">
 ): OpenClawCapturedTurn[] {
-  const completeTurns = collectCompleteTurnMessages(state.pendingMessages);
+  const completeTurns = collectUserAnchoredTurnMessages(state.pendingMessages);
   if (completeTurns.length === 0) return [];
 
-  const completeMessages = completeTurns.flat();
-  if (
-    completeTurns.length < config.captureFlushMaxTurns &&
-    estimateCaptureTokens(completeMessages) < config.captureFlushMaxTokens
-  ) {
-    return [];
-  }
+  if (completeTurns.length < config.captureFlushMaxTurns) return [];
 
   return completeTurns.map((messages) => ({
     agent_id: identity.agent_id,
@@ -98,7 +88,7 @@ export function markCaptureTurnsFlushed(
   state.pendingMessages = state.pendingMessages.filter((message) => !flushedIndexes.has(message.message_index));
 }
 
-function collectCompleteTurnMessages(messages: RawMessageInput[]): RawMessageInput[][] {
+function collectUserAnchoredTurnMessages(messages: RawMessageInput[]): RawMessageInput[][] {
   const turns: RawMessageInput[][] = [];
   let index = 0;
 
@@ -109,16 +99,11 @@ function collectCompleteTurnMessages(messages: RawMessageInput[]): RawMessageInp
     if (index >= messages.length) break;
 
     const turnStart = index;
-    while (index < messages.length && messages[index]?.role === "user") {
+    index += 1;
+    while (index < messages.length && messages[index]?.role !== "user") {
       index += 1;
     }
 
-    const assistantStart = index;
-    while (index < messages.length && messages[index]?.role === "assistant") {
-      index += 1;
-    }
-
-    if (assistantStart === index) break;
     turns.push(messages.slice(turnStart, index));
   }
 

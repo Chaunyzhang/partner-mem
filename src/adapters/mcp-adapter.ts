@@ -1,5 +1,6 @@
 import { ToolFacade } from "../tools/tool-facade.js";
 import { toolSchemas, type ToolName } from "../tools/tool-contracts.js";
+import { readMemoryScope, sessionIdForMemoryScope, type MemoryScope } from "../tools/tool-scope.js";
 
 export interface TrustedMemoryIdentity {
   agent_id: string;
@@ -37,23 +38,33 @@ function bindTrustedIdentity(name: ToolName, args: unknown, identity: TrustedMem
   if (!identity) throw new Error("Partner-Mem requires trusted memory identity before tool access.");
 
   return {
-    ...pickAllowedMemoryToolInput(name, args),
+    ...buildTrustedMemoryToolInput(name, args, identity.session_id),
     agent_id: identity.agent_id,
-    session_id: identity.session_id
   };
 }
 
-function pickAllowedMemoryToolInput(name: ToolName, args: unknown): Record<string, unknown> {
+function buildTrustedMemoryToolInput(name: ToolName, args: unknown, trustedSessionId: string): Record<string, unknown> {
   const input = isRecord(args) ? args : {};
   switch (name) {
     case "partner_mem_search":
     case "partner_mem_recall":
-      return pick(input, ["query", "time_window", "limit"]);
+      return {
+        ...pick(input, ["query", "time_window", "limit"]),
+        ...withScopedSessionId(readMemoryScope(input.scope), trustedSessionId)
+      };
     case "partner_mem_timeline":
-      return pick(input, ["since", "until", "limit"]);
+      return {
+        ...pick(input, ["since", "until", "limit"]),
+        session_id: trustedSessionId
+      };
     case "partner_mem_status":
       return {};
   }
+}
+
+function withScopedSessionId(scope: MemoryScope, trustedSessionId: string): Record<string, string> {
+  const sessionId = sessionIdForMemoryScope(scope, trustedSessionId);
+  return sessionId ? { session_id: sessionId } : {};
 }
 
 function pick(input: Record<string, unknown>, keys: string[]): Record<string, unknown> {

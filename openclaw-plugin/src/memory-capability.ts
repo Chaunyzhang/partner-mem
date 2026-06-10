@@ -11,6 +11,7 @@ export function createPartnerMemMemoryCapability(): MemoryPluginCapability {
 
       return [
         "Use partner_mem_recall when you need verified original raw memory evidence.",
+        "Use scope=current_session by default; use scope=agent_memory only when the user explicitly asks for same-agent long-term memory.",
         "Use partner_mem_search only for candidate navigation; candidates are not proof.",
         "Do not treat summaries or candidate routes as proof."
       ];

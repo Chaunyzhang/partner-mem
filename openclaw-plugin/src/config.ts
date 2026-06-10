@@ -6,7 +6,6 @@ export interface PartnerMemOpenClawConfig {
   autoRecall: boolean;
   contextBudgetTokens: number;
   recallLimit: number;
-  captureFlushMaxTokens: number;
   captureFlushMaxTurns: number;
   captureMaxCharsPerMessage: number;
   auditRetentionMaxRows: number;
@@ -28,11 +27,10 @@ export interface PartnerMemOpenClawExtractorConfig {
 export const DEFAULT_PARTNER_MEM_OPENCLAW_CONFIG: PartnerMemOpenClawConfig = {
   dbPath: "~/.openclaw/partner-mem/partner-mem.db",
   autoCapture: true,
-  autoRecall: true,
+  autoRecall: false,
   contextBudgetTokens: 1200,
   recallLimit: 4,
-  captureFlushMaxTokens: 20000,
-  captureFlushMaxTurns: 7,
+  captureFlushMaxTurns: 2,
   captureMaxCharsPerMessage: 200000,
   auditRetentionMaxRows: 500,
   hookTimeoutMs: 12000,
@@ -49,7 +47,6 @@ export const DEFAULT_PARTNER_MEM_OPENCLAW_CONFIG: PartnerMemOpenClawConfig = {
 const INTEGER_RANGES = {
   contextBudgetTokens: { min: 1, max: 20000 },
   recallLimit: { min: 1, max: 50 },
-  captureFlushMaxTokens: { min: 1, max: 200000 },
   captureFlushMaxTurns: { min: 1, max: 100 },
   captureMaxCharsPerMessage: { min: 1000, max: 1000000 },
   auditRetentionMaxRows: { min: 0, max: 100000 },
@@ -72,6 +69,10 @@ export function readPartnerMemOpenClawConfig(raw: unknown): PartnerMemOpenClawCo
   }
 
   const config = { ...DEFAULT_PARTNER_MEM_OPENCLAW_CONFIG };
+
+  if ("captureFlushMaxTokens" in raw) {
+    throw new TypeError("captureFlushMaxTokens was deleted; capture flush is controlled by captureFlushMaxTurns");
+  }
 
   if ("dbPath" in raw) {
     if (typeof raw.dbPath !== "string" || raw.dbPath.trim().length === 0) {
@@ -110,7 +111,7 @@ export function createPartnerMemCoreConfig(config: PartnerMemOpenClawConfig): Pa
       ...defaults.context,
       maxTokens: config.contextBudgetTokens,
       recentMessages: config.recallLimit,
-      autoRecallEnabled: true,
+      autoRecallEnabled: config.autoRecall,
       evidenceMaxItems: config.recallLimit
     },
     summary: {

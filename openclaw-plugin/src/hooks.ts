@@ -44,6 +44,10 @@ export function captureAgentEnd(
       logMissingTrustedIdentity(runtime, "capture");
       return;
     }
+    if (!isMainConversation(event, ctx)) {
+      logNonMainConversation(runtime, "capture");
+      return;
+    }
     const state = runtime.getCaptureState(identity);
     const storedCursor = runtime.getStoredCursor(identity) ?? -1;
     const cursor = Math.max(storedCursor, state.bufferCursor);
@@ -98,12 +102,16 @@ export function recallBeforePromptBuild(
     logMissingTrustedIdentity(runtime, "auto_recall");
     return undefined;
   }
+  if (!isMainConversation(event, ctx)) {
+    logNonMainConversation(runtime, "auto_recall");
+    return undefined;
+  }
   const block = runtime.contextAssembler.assembleContext({
     agent_id: identity.agent_id,
     session_id: identity.session_id,
     current_prompt: query,
     budget_tokens: runtime.config.contextBudgetTokens,
-    include_recent: true,
+    include_recent: false,
     auto_recall: true
   });
   const formatted = formatContextBlockForOpenClaw(block);
@@ -116,6 +124,56 @@ function logMissingTrustedIdentity(runtime: PartnerMemOpenClawRuntime, operation
   runtime.logger.warn?.("Partner-Mem skipped OpenClaw memory access without trusted identity", {
     operation,
     reason: "missing trusted OpenClaw identity"
+  });
+}
+
+function logNonMainConversation(runtime: PartnerMemOpenClawRuntime, operation: "capture" | "auto_recall"): void {
+  runtime.logger.debug?.("Partner-Mem skipped non-main OpenClaw conversation", {
+    operation,
+    reason: "non-main conversation"
+  });
+}
+
+const MAIN_CONVERSATION_VALUES = new Set(["main", "primary", "chat"]);
+const NON_MAIN_CONVERSATION_VALUES = new Set([
+  "background",
+  "embedded",
+  "internal",
+  "subagent",
+  "tool",
+  "worker"
+]);
+
+function isMainConversation(event: unknown, ctx: unknown): boolean {
+  const records = [event, ctx].filter(isRecord);
+  if (records.some(hasNonMainConversationMarker)) return false;
+  return records.some(hasMainConversationMarker);
+}
+
+function hasMainConversationMarker(record: Record<string, unknown>): boolean {
+  if (record.isMainConversation === true || record.isMainSession === true) return true;
+  return conversationKindValues(record).some((value) => MAIN_CONVERSATION_VALUES.has(value));
+}
+
+function hasNonMainConversationMarker(record: Record<string, unknown>): boolean {
+  if (record.isSubagent === true || record.subagent === true || record.isEmbedded === true || record.embedded === true) {
+    return true;
+  }
+  if (record.isMainConversation === false || record.isMainSession === false) return true;
+  if (readString(record.parentRunId) || readString(record.parentSessionId)) return true;
+  return conversationKindValues(record).some((value) => NON_MAIN_CONVERSATION_VALUES.has(value));
+}
+
+function conversationKindValues(record: Record<string, unknown>): string[] {
+  return [
+    "conversationKind",
+    "sessionKind",
+    "runKind",
+    "kind",
+    "source"
+  ].flatMap((key) => {
+    const value = readString(record[key]);
+    return value ? [value.toLowerCase()] : [];
   });
 }
 

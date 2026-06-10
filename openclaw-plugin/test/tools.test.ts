@@ -70,6 +70,11 @@ describe("Partner-Mem OpenClaw tools", () => {
     expect(toolSchemas.partner_mem_search.inputSchema.required).toEqual(["query", "limit"]);
     expect(toolSchemas.partner_mem_recall.inputSchema.required).toEqual(["query", "limit"]);
     expect(toolSchemas.partner_mem_timeline.inputSchema.required).toEqual(["limit"]);
+    expect(toolSchemas.partner_mem_search.inputSchema.properties).toHaveProperty("scope");
+    expect(toolSchemas.partner_mem_recall.inputSchema.properties).toHaveProperty("scope");
+    expect(toolSchemas.partner_mem_timeline.inputSchema.properties).not.toHaveProperty("scope");
+    expect(JSON.stringify(toolSchemas.partner_mem_recall.inputSchema.properties.scope)).toContain("current_session");
+    expect(JSON.stringify(toolSchemas.partner_mem_recall.inputSchema.properties.scope)).toContain("agent_memory");
 
     for (const name of ["partner_mem_search", "partner_mem_recall", "partner_mem_timeline"] as const) {
       expect(toolSchemas[name].inputSchema.properties).not.toHaveProperty("agent_id");
@@ -143,6 +148,87 @@ describe("Partner-Mem OpenClaw tools", () => {
       expect(JSON.stringify(recall.details)).not.toContain("model supplied wrong agent proof");
       expect(JSON.stringify(recall.details)).not.toContain("model supplied wrong session proof");
     } finally {
+      cleanupRuntime(runtime);
+    }
+  });
+
+  it("defaults recall to current session and only crosses sessions with agent_memory scope", async () => {
+    const runtime = createTempRuntime();
+    try {
+      runtime.ingest.ingestTurn({
+        agent_id: "agent-1",
+        session_id: "session-1",
+        turn_id: "turn-1",
+        turn_index: 0,
+        messages: [
+          {
+            role: "user",
+            text: "current session scoped proof",
+            observed_at: "2026-06-06T00:00:00.000Z",
+            message_index: 0
+          }
+        ]
+      });
+      runtime.ingest.ingestTurn({
+        agent_id: "agent-1",
+        session_id: "session-2",
+        turn_id: "turn-2",
+        turn_index: 0,
+        messages: [
+          {
+            role: "user",
+            text: "agent memory scoped proof",
+            observed_at: "2026-06-06T00:00:00.000Z",
+            message_index: 0
+          }
+        ]
+      });
+
+      const recallTool = createPartnerMemOpenClawTools(runtime)
+        .find((tool) => tool.name === "partner_mem_recall")!;
+      const currentSession = await recallTool.execute(
+        "call-current-session",
+        { query: "scoped proof", limit: 5 },
+        { agentId: "agent-1", sessionKey: "session-1" }
+      );
+      const agentMemory = await recallTool.execute(
+        "call-agent-memory",
+        { query: "scoped proof", scope: "agent_memory", limit: 5 },
+        { agentId: "agent-1", sessionKey: "session-1" }
+      );
+
+      expect(JSON.stringify(currentSession.details)).toContain("current session scoped proof");
+      expect(JSON.stringify(currentSession.details)).not.toContain("agent memory scoped proof");
+      expect(JSON.stringify(agentMemory.details)).toContain("current session scoped proof");
+      expect(JSON.stringify(agentMemory.details)).toContain("agent memory scoped proof");
+    } finally {
+      cleanupRuntime(runtime);
+    }
+  });
+
+  it("rejects invalid memory scope before facade access", async () => {
+    const runtime = createTempRuntime();
+    const originalRecall = runtime.facade.partner_mem_recall;
+    let facadeCalled = false;
+    runtime.facade.partner_mem_recall = ((input) => {
+      facadeCalled = true;
+      return originalRecall.call(runtime.facade, input);
+    }) as typeof runtime.facade.partner_mem_recall;
+
+    try {
+      const recall = await createPartnerMemOpenClawTools(runtime)
+        .find((tool) => tool.name === "partner_mem_recall")!
+        .execute(
+          "call-invalid-scope",
+          { query: "anything", scope: "cross_agent", limit: 5 },
+          { agentId: "agent-1", sessionKey: "session-1" }
+        );
+
+      expect(recall.isError).toBe(true);
+      expect(recall.content[0]?.text).toContain("scope must be current_session or agent_memory");
+      expect(facadeCalled).toBe(false);
+    } finally {
+      runtime.facade.partner_mem_recall = originalRecall;
       cleanupRuntime(runtime);
     }
   });

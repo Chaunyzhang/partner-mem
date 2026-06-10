@@ -100,9 +100,7 @@ export function formatContextBlockForOpenClaw(block: {
   verified_evidence: Array<{ role: string; text: string }>;
   safety_instructions: string[];
 }): string {
-  if (block.verified_evidence.length === 0 && block.recent_raw_timeline.length === 0) {
-    return "";
-  }
+  if (block.verified_evidence.length === 0) return "";
 
   const sections: string[] = [];
 
@@ -110,13 +108,6 @@ export function formatContextBlockForOpenClaw(block: {
     sections.push(
       "Partner-Mem verified raw evidence:",
       ...block.verified_evidence.map((item) => `- ${item.role}: ${item.text}`)
-    );
-  }
-
-  if (block.recent_raw_timeline.length > 0) {
-    sections.push(
-      "Partner-Mem recent raw timeline:",
-      ...block.recent_raw_timeline.map((item) => `- ${item.role}: ${item.text}`)
     );
   }
 

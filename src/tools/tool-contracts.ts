@@ -1,3 +1,5 @@
+import { MEMORY_SCOPE_VALUES } from "./tool-scope.js";
+
 export const TOOL_NAMES = [
   "partner_mem_search",
   "partner_mem_recall",
@@ -21,6 +23,12 @@ const timeWindowSchema = {
   }
 } as const;
 
+const memoryScopeSchema = {
+  type: "string",
+  enum: [...MEMORY_SCOPE_VALUES],
+  description: "current_session searches only this chat; agent_memory searches long-term memory for the same agent."
+} as const;
+
 export const toolSchemas = {
   partner_mem_search: {
     name: "partner_mem_search",
@@ -30,6 +38,7 @@ export const toolSchemas = {
       required: ["query", "limit"],
       properties: {
         query: { type: "string" },
+        scope: memoryScopeSchema,
         time_window: timeWindowSchema,
         limit: { type: "integer", minimum: 1 }
       }
@@ -43,6 +52,7 @@ export const toolSchemas = {
       required: ["query", "limit"],
       properties: {
         query: { type: "string" },
+        scope: memoryScopeSchema,
         time_window: timeWindowSchema,
         limit: { type: "integer", minimum: 1 }
       }

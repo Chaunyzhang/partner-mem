@@ -8,6 +8,7 @@ import {
   toolSchemas,
   type ToolName
 } from "../../src/tools/tool-contracts.js";
+import { readMemoryScope, sessionIdForMemoryScope, type MemoryScope } from "../../src/tools/tool-scope.js";
 import { resolveOpenClawSessionIdentity } from "./openclaw-adapter.js";
 import type { PartnerMemOpenClawRuntime } from "./runtime.js";
 
@@ -59,23 +60,33 @@ function bindTrustedIdentity(
   }
 
   return {
-    ...pickAllowedMemoryToolInput(name, params),
+    ...buildTrustedMemoryToolInput(name, params, identity.session_id),
     agent_id: identity.agent_id,
-    session_id: identity.session_id
   };
 }
 
-function pickAllowedMemoryToolInput(name: ToolName, params: unknown): Record<string, unknown> {
+function buildTrustedMemoryToolInput(name: ToolName, params: unknown, trustedSessionId: string): Record<string, unknown> {
   const input = isRecord(params) ? params : {};
   switch (name) {
     case "partner_mem_search":
     case "partner_mem_recall":
-      return pick(input, ["query", "time_window", "limit"]);
+      return {
+        ...pick(input, ["query", "time_window", "limit"]),
+        ...withScopedSessionId(readMemoryScope(input.scope), trustedSessionId)
+      };
     case "partner_mem_timeline":
-      return pick(input, ["since", "until", "limit"]);
+      return {
+        ...pick(input, ["since", "until", "limit"]),
+        session_id: trustedSessionId
+      };
     case "partner_mem_status":
       return {};
   }
+}
+
+function withScopedSessionId(scope: MemoryScope, trustedSessionId: string): Record<string, string> {
+  const sessionId = sessionIdForMemoryScope(scope, trustedSessionId);
+  return sessionId ? { session_id: sessionId } : {};
 }
 
 function pick(input: Record<string, unknown>, keys: string[]): Record<string, unknown> {

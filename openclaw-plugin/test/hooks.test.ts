@@ -48,8 +48,8 @@ describe("Partner-Mem OpenClaw hooks", () => {
         ]
       };
 
-      captureAgentEnd(event, { agentId: "agent-1", sessionKey: "session-1" }, runtime);
-      captureAgentEnd(event, { agentId: "agent-1", sessionKey: "session-1" }, runtime);
+      captureAgentEnd(event, mainCtx("session-1"), runtime);
+      captureAgentEnd(event, mainCtx("session-1"), runtime);
 
       expect(
         runtime.facade
@@ -71,6 +71,7 @@ describe("Partner-Mem OpenClaw hooks", () => {
   it("skips capture without writing default-agent memory when trusted identity is missing", () => {
     const warnings: unknown[] = [];
     const runtime = createTempRuntime({
+      autoRecall: true,
       logger: { warn: (_message: string, meta?: unknown) => warnings.push(meta) }
     });
     try {
@@ -97,7 +98,7 @@ describe("Partner-Mem OpenClaw hooks", () => {
   });
 
   it("filters channel conversation metadata before buffering captured turns", () => {
-    const runtime = createTempRuntime();
+    const runtime = createTempRuntime({ autoRecall: true });
     const originalIngest = runtime.ingest.ingestTurn;
     const calls: Parameters<typeof runtime.ingest.ingestTurn>[0][] = [];
     runtime.ingest.ingestTurn = (input) => {
@@ -121,7 +122,7 @@ describe("Partner-Mem OpenClaw hooks", () => {
             { role: "assistant", content: "feishu visible assistant reply", message_index: 2 }
           ]
         },
-        { agentId: "agent-1", sessionKey: "session-1" },
+        mainCtx("session-1"),
         runtime
       );
 
@@ -150,7 +151,7 @@ describe("Partner-Mem OpenClaw hooks", () => {
             { role: "assistant", content: "cursor first assistant", message_index: 1 }
           ]
         },
-        { agentId: "agent-1", sessionKey: "session-1" },
+        mainCtx("session-1"),
         runtime
       );
       captureAgentEnd(
@@ -164,7 +165,7 @@ describe("Partner-Mem OpenClaw hooks", () => {
             { role: "assistant", content: "cursor second assistant", message_index: 3 }
           ]
         },
-        { agentId: "agent-1", sessionKey: "session-1" },
+        mainCtx("session-1"),
         runtime
       );
 
@@ -191,7 +192,7 @@ describe("Partner-Mem OpenClaw hooks", () => {
             { role: "assistant", content: "first buffered assistant", message_index: 1 }
           ]
         },
-        { agentId: "agent-1", sessionKey: "session-1" },
+        mainCtx("session-1"),
         runtime
       );
 
@@ -208,7 +209,7 @@ describe("Partner-Mem OpenClaw hooks", () => {
             { role: "assistant", content: "second buffered assistant", message_index: 3 }
           ]
         },
-        { agentId: "agent-1", sessionKey: "session-1" },
+        mainCtx("session-1"),
         runtime
       );
 
@@ -223,8 +224,8 @@ describe("Partner-Mem OpenClaw hooks", () => {
     }
   });
 
-  it("flushes one oversized complete turn as a whole pair when captureFlushMaxTokens is reached", () => {
-    const runtime = createTempRuntime({ captureFlushMaxTokens: 10, captureFlushMaxTurns: 7 });
+  it("does not flush a single large complete turn before the two-turn threshold", () => {
+    const runtime = createTempRuntime({ captureFlushMaxTurns: 2 });
     try {
       captureAgentEnd(
         {
@@ -235,21 +236,18 @@ describe("Partner-Mem OpenClaw hooks", () => {
             { role: "assistant", content: "long token threshold assistant", message_index: 1 }
           ]
         },
-        { agentId: "agent-1", sessionKey: "session-1" },
+        mainCtx("session-1"),
         runtime
       );
 
-      expect(timelineTexts(runtime, "agent-1", "session-1")).toEqual([
-        "long token threshold user",
-        "long token threshold assistant"
-      ]);
+      expect(timelineTexts(runtime, "agent-1", "session-1")).toEqual([]);
     } finally {
       cleanupRuntime(runtime);
     }
   });
 
-  it("keeps a trailing user-only incomplete turn pending until the assistant reply appears", () => {
-    const runtime = createTempRuntime();
+  it("captures a user-only turn once it reaches the two user-anchored turn threshold", () => {
+    const runtime = createTempRuntime({ captureFlushMaxTurns: 2 });
     try {
       captureAgentEnd(
         {
@@ -257,7 +255,7 @@ describe("Partner-Mem OpenClaw hooks", () => {
           success: true,
           messages: [{ role: "user", content: "pending user only", message_index: 0 }]
         },
-        { agentId: "agent-1", sessionKey: "session-1" },
+        mainCtx("session-1"),
         runtime
       );
 
@@ -269,18 +267,59 @@ describe("Partner-Mem OpenClaw hooks", () => {
           success: true,
           messages: [
             { role: "user", content: "pending user only", message_index: 0 },
-            { role: "assistant", content: "pending assistant reply", message_index: 1 }
+            { role: "user", content: "second user anchor", message_index: 1 }
           ]
         },
-        { agentId: "agent-1", sessionKey: "session-1" },
+        mainCtx("session-1"),
         runtime
       );
 
       expect(timelineTexts(runtime, "agent-1", "session-1")).toEqual([
         "pending user only",
-        "pending assistant reply"
+        "second user anchor"
       ]);
     } finally {
+      cleanupRuntime(runtime);
+    }
+  });
+
+  it("keeps multiple assistant replies inside the preceding user-anchored turn", () => {
+    const runtime = createTempRuntime({ captureFlushMaxTurns: 2 });
+    const originalIngest = runtime.ingest.ingestTurn;
+    const calls: Parameters<typeof runtime.ingest.ingestTurn>[0][] = [];
+    runtime.ingest.ingestTurn = (input) => {
+      calls.push(input);
+      return originalIngest.call(runtime.ingest, input);
+    };
+
+    try {
+      captureAgentEnd(
+        {
+          runId: "run-1",
+          success: true,
+          messages: [
+            { role: "user", content: "anchor one user", message_index: 0 },
+            { role: "assistant", content: "anchor one assistant 1", message_index: 1 },
+            { role: "assistant", content: "anchor one assistant 2", message_index: 2 },
+            { role: "assistant", content: "anchor one assistant 3", message_index: 3 },
+            { role: "user", content: "anchor two user", message_index: 4 }
+          ]
+        },
+        mainCtx("session-1"),
+        runtime
+      );
+
+      expect(calls.map((call) => call.messages.map((message) => message.text))).toEqual([
+        [
+          "anchor one user",
+          "anchor one assistant 1",
+          "anchor one assistant 2",
+          "anchor one assistant 3"
+        ],
+        ["anchor two user"]
+      ]);
+    } finally {
+      runtime.ingest.ingestTurn = originalIngest;
       cleanupRuntime(runtime);
     }
   });
@@ -306,7 +345,7 @@ describe("Partner-Mem OpenClaw hooks", () => {
             { role: "assistant", content: "round two assistant", message_index: 3 }
           ]
         },
-        { agentId: "agent-1", sessionKey: "session-1" },
+        mainCtx("session-1"),
         runtime
       );
 
@@ -334,7 +373,7 @@ describe("Partner-Mem OpenClaw hooks", () => {
             { role: "assistant", content: "audit cleanup searchable assistant", message_index: 1 }
           ]
         },
-        { agentId: "agent-1", sessionKey: "session-1" },
+        mainCtx("session-1"),
         runtime
       );
 
@@ -365,7 +404,7 @@ describe("Partner-Mem OpenClaw hooks", () => {
             { role: "assistant", content: "audit cleanup second assistant", message_index: 3 }
           ]
         },
-        { agentId: "agent-1", sessionKey: "session-1" },
+        mainCtx("session-1"),
         runtime
       );
 
@@ -421,7 +460,7 @@ describe("Partner-Mem OpenClaw hooks", () => {
             { role: "assistant", content: "Extraction queue assistant reply.", message_index: 1 }
           ]
         },
-        { agentId: "agent-1", sessionKey: "session-1" },
+        mainCtx("session-1"),
         runtime
       );
       await runtime.drainExtractionQueueForTests();
@@ -465,7 +504,7 @@ describe("Partner-Mem OpenClaw hooks", () => {
             }
           ]
         },
-        { agentId: "agent-1", sessionKey: "partner-mem-extraction-123" },
+        mainCtx("partner-mem-extraction-123"),
         runtime
       );
       await runtime.drainExtractionQueueForTests();
@@ -475,6 +514,42 @@ describe("Partner-Mem OpenClaw hooks", () => {
           .evidence_items
       ).toEqual([]);
       expect(calls).toEqual([]);
+    } finally {
+      cleanupRuntime(runtime);
+    }
+  });
+
+  it("does not capture explicit subagent or embedded conversations", () => {
+    const runtime = createTempRuntime({ captureFlushMaxTurns: 1 });
+    try {
+      captureAgentEnd(
+        {
+          runId: "subagent-run-1",
+          conversationKind: "subagent",
+          success: true,
+          messages: [
+            { role: "user", content: "subagent should not persist user", message_index: 0 },
+            { role: "assistant", content: "subagent should not persist assistant", message_index: 1 }
+          ]
+        },
+        { agentId: "agent-1", sessionKey: "subagent-session", conversationKind: "subagent" },
+        runtime
+      );
+      captureAgentEnd(
+        {
+          runId: "embedded-run-1",
+          success: true,
+          messages: [
+            { role: "user", content: "embedded should not persist user", message_index: 0 },
+            { role: "assistant", content: "embedded should not persist assistant", message_index: 1 }
+          ]
+        },
+        { agentId: "agent-1", sessionKey: "embedded-session", isEmbedded: true },
+        runtime
+      );
+
+      expect(timelineTexts(runtime, "agent-1", "subagent-session")).toEqual([]);
+      expect(timelineTexts(runtime, "agent-1", "embedded-session")).toEqual([]);
     } finally {
       cleanupRuntime(runtime);
     }
@@ -502,7 +577,7 @@ describe("Partner-Mem OpenClaw hooks", () => {
             { role: "assistant", content: "Capture without extraction reply.", message_index: 1 }
           ]
         },
-        { agentId: "agent-1", sessionKey: "session-1" },
+        mainCtx("session-1"),
         runtime
       );
       await runtime.drainExtractionQueueForTests();
@@ -512,7 +587,7 @@ describe("Partner-Mem OpenClaw hooks", () => {
           prompt: "Capture",
           messages: [{ role: "user", content: "Capture" }]
         },
-        { agentId: "agent-1", sessionKey: "session-1" },
+        mainCtx("session-1"),
         runtime
       );
 
@@ -549,7 +624,7 @@ describe("Partner-Mem OpenClaw hooks", () => {
             { role: "assistant", content: "Raw capture failure reply is still stored.", message_index: 1 }
           ]
         },
-        { agentId: "agent-1", sessionKey: "session-1" },
+        mainCtx("session-1"),
         runtime
       );
       await runtime.drainExtractionQueueForTests();
@@ -573,7 +648,7 @@ describe("Partner-Mem OpenClaw hooks", () => {
           success: true,
           messages: [{ role: "user", content: "should not be stored" }]
         },
-        { agentId: "agent-1", sessionKey: "session-1" },
+        mainCtx("session-1"),
         runtime
       );
 
@@ -586,8 +661,8 @@ describe("Partner-Mem OpenClaw hooks", () => {
     }
   });
 
-  it("auto-recalls exact raw evidence into appendContext and does not leak dbPath", () => {
-    const runtime = createTempRuntime();
+  it("auto-recalls current-session exact raw evidence into appendContext when explicitly enabled", () => {
+    const runtime = createTempRuntime({ autoRecall: true });
     try {
       captureAgentEnd(
         {
@@ -598,7 +673,7 @@ describe("Partner-Mem OpenClaw hooks", () => {
             { role: "assistant", content: "Partner-Mem recall hook exact assistant text.", message_index: 1 }
           ]
         },
-        { agentId: "agent-1", sessionKey: "session-1" },
+        mainCtx("session-1"),
         runtime
       );
 
@@ -607,11 +682,12 @@ describe("Partner-Mem OpenClaw hooks", () => {
           prompt: "Find recall hook",
           messages: [{ role: "user", content: "recall hook" }]
         },
-        { agentId: "agent-1", sessionKey: "session-1" },
+        mainCtx("session-1"),
         runtime
       );
 
       expect(result?.appendContext).toContain("Partner-Mem recall hook exact raw text.");
+      expect(result?.appendContext).not.toContain("Partner-Mem recent raw timeline:");
       expect(result?.appendContext).not.toContain(runtime.__dbPath);
       expect(result?.appendContext).not.toContain("candidate route as fact");
       expect(result?.appendContext).not.toContain("fake summary proof");
@@ -625,6 +701,7 @@ describe("Partner-Mem OpenClaw hooks", () => {
   it("skips auto recall injection when trusted identity is missing", () => {
     const warnings: unknown[] = [];
     const runtime = createTempRuntime({
+      autoRecall: true,
       logger: { warn: (_message: string, meta?: unknown) => warnings.push(meta) }
     });
     try {
@@ -637,7 +714,7 @@ describe("Partner-Mem OpenClaw hooks", () => {
             { role: "assistant", content: "identity guarded recall reply", message_index: 1 }
           ]
         },
-        { agentId: "agent-1", sessionKey: "session-1" },
+        mainCtx("session-1"),
         runtime
       );
 
@@ -659,7 +736,7 @@ describe("Partner-Mem OpenClaw hooks", () => {
   });
 
   it("keeps the base prompt prefix stable when dynamic memory changes", () => {
-    const runtime = createTempRuntime();
+    const runtime = createTempRuntime({ autoRecall: true });
     try {
       captureAgentEnd(
         {
@@ -670,7 +747,7 @@ describe("Partner-Mem OpenClaw hooks", () => {
             { role: "assistant", content: "alpha cache reply", message_index: 1 }
           ]
         },
-        { agentId: "agent-1", sessionKey: "session-1" },
+        mainCtx("session-1"),
         runtime
       );
       captureAgentEnd(
@@ -682,7 +759,7 @@ describe("Partner-Mem OpenClaw hooks", () => {
             { role: "assistant", content: "beta cache reply", message_index: 3 }
           ]
         },
-        { agentId: "agent-1", sessionKey: "session-1" },
+        mainCtx("session-1"),
         runtime
       );
 
@@ -691,7 +768,7 @@ describe("Partner-Mem OpenClaw hooks", () => {
           prompt: "alpha",
           messages: [{ role: "user", content: "alpha" }]
         },
-        { agentId: "agent-1", sessionKey: "session-1" },
+        mainCtx("session-1"),
         runtime
       );
       const second = recallBeforePromptBuild(
@@ -699,7 +776,7 @@ describe("Partner-Mem OpenClaw hooks", () => {
           prompt: "beta",
           messages: [{ role: "user", content: "beta" }]
         },
-        { agentId: "agent-1", sessionKey: "session-1" },
+        mainCtx("session-1"),
         runtime
       );
       const basePrompt = "system instructions\n\nstable conversation history";
@@ -728,7 +805,7 @@ describe("Partner-Mem OpenClaw hooks", () => {
             { role: "assistant", content: "Visible assistant memory that must not enter extraction prompt.", message_index: 1 }
           ]
         },
-        { agentId: "agent-1", sessionKey: "session-1" },
+        mainCtx("session-1"),
         runtime
       );
 
@@ -744,7 +821,7 @@ describe("Partner-Mem OpenClaw hooks", () => {
               }
             ]
           },
-          { agentId: "agent-1", sessionKey: "partner-mem-extraction-456" },
+          mainCtx("partner-mem-extraction-456"),
           runtime
         )
       ).toBeUndefined();
@@ -753,8 +830,8 @@ describe("Partner-Mem OpenClaw hooks", () => {
     }
   });
 
-  it("auto-recalls exact raw evidence across OpenClaw sessions", () => {
-    const runtime = createTempRuntime();
+  it("does not auto-recall exact raw evidence across OpenClaw sessions", () => {
+    const runtime = createTempRuntime({ autoRecall: true });
     try {
       captureAgentEnd(
         {
@@ -765,7 +842,7 @@ describe("Partner-Mem OpenClaw hooks", () => {
             { role: "assistant", content: "我记住了。", message_index: 1 }
           ]
         },
-        { agentId: "agent-1", sessionKey: "old-session" },
+        mainCtx("old-session"),
         runtime
       );
 
@@ -774,19 +851,18 @@ describe("Partner-Mem OpenClaw hooks", () => {
           prompt: "我的密码是什么",
           messages: [{ role: "user", content: "我的密码是什么" }]
         },
-        { agentId: "agent-1", sessionKey: "new-session" },
+        mainCtx("new-session"),
         runtime
       );
 
-      expect(result?.appendContext).toContain("Partner-Mem verified raw evidence:\n- user: 密码：柚子茶8842");
-      expect(result).not.toHaveProperty("prependContext");
+      expect(result).toBeUndefined();
     } finally {
       cleanupRuntime(runtime);
     }
   });
 
-  it("autoRecall false injects nothing", () => {
-    const runtime = createTempRuntime({ autoRecall: false });
+  it("autoRecall defaults to false and injects nothing", () => {
+    const runtime = createTempRuntime();
     try {
       expect(
         recallBeforePromptBuild(
@@ -794,7 +870,7 @@ describe("Partner-Mem OpenClaw hooks", () => {
             prompt: "anything",
             messages: [{ role: "user", content: "anything" }]
           },
-          { agentId: "agent-1", sessionKey: "session-1" },
+          mainCtx("session-1"),
           runtime
         )
       ).toBeUndefined();
@@ -822,7 +898,7 @@ describe("Partner-Mem OpenClaw hooks", () => {
               { role: "assistant", content: "capture failure reply", message_index: 1 }
             ]
           },
-          { agentId: "agent-1", sessionKey: "session-1" },
+          mainCtx("session-1"),
           runtime
         )
       ).not.toThrow();
@@ -846,7 +922,7 @@ describe("Partner-Mem OpenClaw hooks", () => {
             { role: "assistant", content: "short assistant after oversized user", message_index: 1 }
           ]
         },
-        { agentId: "agent-1", sessionKey: "session-1" },
+        mainCtx("session-1"),
         runtime
       );
 
@@ -913,6 +989,10 @@ function timelineTexts(runtime: ReturnType<typeof createTempRuntime>, agentId: s
       limit: 20
     })
     .evidence_items.map((item) => item.text);
+}
+
+function mainCtx(sessionKey: string): { agentId: string; sessionKey: string; conversationKind: "main" } {
+  return { agentId: "agent-1", sessionKey, conversationKind: "main" };
 }
 
 function countRuntimeRows(runtime: ReturnType<typeof createTempRuntime>, tableName: string): number {

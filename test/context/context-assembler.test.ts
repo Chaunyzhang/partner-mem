@@ -6,7 +6,7 @@ import { ToolFacade } from "../../src/tools/tool-facade.js";
 import { createInitializedStore } from "../helpers/db.js";
 
 describe("ContextAssembler", () => {
-  it("includes recent raw timeline when enabled", () => {
+  it("does not include recent raw timeline even when requested", () => {
     const store = createInitializedStore();
     new RawIngestService(store).ingestTurn({
       agent_id: "agent-1",
@@ -31,10 +31,10 @@ describe("ContextAssembler", () => {
       auto_recall: false
     });
 
-    expect(block.recent_raw_timeline[0]?.text).toBe("recent raw only");
+    expect(block.recent_raw_timeline).toEqual([]);
   });
 
-  it("includes the latest recent raw timeline across sessions for the same agent", () => {
+  it("does not include recent raw timeline across sessions for the same agent", () => {
     const store = createInitializedStore();
     const ingest = new RawIngestService(store);
     ingest.ingestTurn({
@@ -94,7 +94,7 @@ describe("ContextAssembler", () => {
       auto_recall: false
     });
 
-    expect(block.recent_raw_timeline.map((item) => item.text)).toEqual(["latest cross-session memory"]);
+    expect(block.recent_raw_timeline).toEqual([]);
   });
 
   it("includes verified evidence only when auto recall is enabled by config", () => {
@@ -148,7 +148,7 @@ describe("ContextAssembler", () => {
     expect(JSON.stringify(block)).not.toContain(".sqlite");
   });
 
-  it("auto recall searches verified evidence across sessions for the same agent", () => {
+  it("auto recall only searches current-session verified evidence", () => {
     const store = createInitializedStore();
     new RawIngestService(store).ingestTurn({
       agent_id: "agent-1",
@@ -194,7 +194,8 @@ describe("ContextAssembler", () => {
       auto_recall: true
     });
 
-    expect(block.verified_evidence.map((item) => item.text)).toContain("密码：柚子茶8842");
+    expect(block.verified_evidence.map((item) => item.text)).not.toContain("密码：柚子茶8842");
+    expect(block.verified_evidence).toEqual([]);
   });
 
   it("auto recall blocks cross-agent evidence paths by default", () => {
