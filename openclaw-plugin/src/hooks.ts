@@ -10,7 +10,6 @@ import {
   extractOpenClawVisibleMessages,
   formatContextBlockForOpenClaw,
   normalizeHostTurn,
-  resolveOpenClawTurnIdentity,
   resolveOpenClawSessionIdentity
 } from "./openclaw-adapter.js";
 import type { PartnerMemOpenClawRuntime } from "./runtime.js";
@@ -41,6 +40,10 @@ export function captureAgentEnd(
     const rawMessages = Array.isArray(eventRecord.messages) ? eventRecord.messages : [];
     const visibleMessages = extractOpenClawVisibleMessages(rawMessages);
     const identity = resolveOpenClawSessionIdentity(event, ctx);
+    if (!identity) {
+      logMissingTrustedIdentity(runtime, "capture");
+      return;
+    }
     const state = runtime.getCaptureState(identity);
     const storedCursor = runtime.getStoredCursor(identity) ?? -1;
     const cursor = Math.max(storedCursor, state.bufferCursor);
@@ -90,7 +93,11 @@ export function recallBeforePromptBuild(
   const query = latestUserText(rawMessages) ?? readString(eventRecord.prompt);
   if (!query || query.trim().length === 0) return undefined;
 
-  const identity = resolveOpenClawTurnIdentity(event, ctx, runtime);
+  const identity = resolveOpenClawSessionIdentity(event, ctx);
+  if (!identity) {
+    logMissingTrustedIdentity(runtime, "auto_recall");
+    return undefined;
+  }
   const block = runtime.contextAssembler.assembleContext({
     agent_id: identity.agent_id,
     session_id: identity.session_id,
@@ -103,6 +110,13 @@ export function recallBeforePromptBuild(
   if (formatted.length === 0) return undefined;
 
   return { appendContext: formatted };
+}
+
+function logMissingTrustedIdentity(runtime: PartnerMemOpenClawRuntime, operation: "capture" | "auto_recall"): void {
+  runtime.logger.warn?.("Partner-Mem skipped OpenClaw memory access without trusted identity", {
+    operation,
+    reason: "missing trusted OpenClaw identity"
+  });
 }
 
 function latestUserText(messages: unknown[]): string | undefined {

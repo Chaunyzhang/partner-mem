@@ -8,7 +8,7 @@ export interface WalkEvidencePathOptions {
   max_depth: number;
   /** If set, only follow edges owned by this agent. Blocked edges are reported as blocked_paths. */
   agent_id?: string;
-  /** When true, allowed to traverse edges with a different agent_id than the visiting one. */
+  /** Core/admin-only traversal switch; ordinary tools cannot set it. */
   allow_cross_agent?: boolean;
 }
 
@@ -66,7 +66,7 @@ export class GraphTraversal {
           continue;
         }
 
-        // Agent isolation: reject cross-agent edges unless allow_cross_agent is true
+        // Ordinary tools never set allow_cross_agent; core/admin-only use is isolated above.
         if (options.agent_id && !options.allow_cross_agent && edge.agent_id !== options.agent_id) {
           blocked_paths.push({
             candidate_node_id: startNodeId,

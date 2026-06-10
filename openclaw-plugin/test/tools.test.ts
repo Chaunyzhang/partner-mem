@@ -2,12 +2,14 @@ import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { TOOL_NAMES } from "../../src/tools/tool-contracts.js";
+import { TOOL_NAMES, toolSchemas } from "../../src/tools/tool-contracts.js";
 import { readPartnerMemOpenClawConfig } from "../src/config.js";
 import { createPartnerMemOpenClawRuntime } from "../src/runtime.js";
 import { createPartnerMemOpenClawTools } from "../src/tools.js";
 
 describe("Partner-Mem OpenClaw tools", () => {
+  const crossAgentSwitchKey = ["allow", "cross", "agent"].join("_");
+
   it("registers exactly the four Partner-Mem tools and no generic aliases", () => {
     const runtime = createTempRuntime();
     try {
@@ -46,9 +48,10 @@ describe("Partner-Mem OpenClaw tools", () => {
         .find((tool) => tool.name === "partner_mem_recall")!
         .execute("call-1", {
           query: "tool proof",
-          agent_id: "agent-1",
-          session_id: "session-1",
           limit: 5
+        }, {
+          agentId: "agent-1",
+          sessionKey: "session-1"
         });
       const status = await tools.find((tool) => tool.name === "partner_mem_status")!.execute("call-2", {
         ignored: true
@@ -59,6 +62,110 @@ describe("Partner-Mem OpenClaw tools", () => {
       expect(recall.content[0]?.text).not.toContain(runtime.__dbPath);
       expect(JSON.stringify(recall.details)).not.toContain(runtime.__dbPath);
     } finally {
+      cleanupRuntime(runtime);
+    }
+  });
+
+  it("does not expose agent identity or cross-agent switches in model-facing schemas", () => {
+    expect(toolSchemas.partner_mem_search.inputSchema.required).toEqual(["query", "limit"]);
+    expect(toolSchemas.partner_mem_recall.inputSchema.required).toEqual(["query", "limit"]);
+    expect(toolSchemas.partner_mem_timeline.inputSchema.required).toEqual(["limit"]);
+
+    for (const name of ["partner_mem_search", "partner_mem_recall", "partner_mem_timeline"] as const) {
+      expect(toolSchemas[name].inputSchema.properties).not.toHaveProperty("agent_id");
+      expect(toolSchemas[name].inputSchema.properties).not.toHaveProperty("session_id");
+    }
+    expect(toolSchemas.partner_mem_recall.inputSchema.properties).not.toHaveProperty(crossAgentSwitchKey);
+  });
+
+  it("binds recall to trusted OpenClaw context instead of model-supplied agent_id", async () => {
+    const runtime = createTempRuntime();
+    try {
+      runtime.ingest.ingestTurn({
+        agent_id: "agent-1",
+        session_id: "session-1",
+        turn_id: "turn-1",
+        turn_index: 0,
+        messages: [
+          {
+            role: "user",
+            text: "trusted context recall proof",
+            observed_at: "2026-06-06T00:00:00.000Z",
+            message_index: 0
+          }
+        ]
+      });
+      runtime.ingest.ingestTurn({
+        agent_id: "agent-2",
+        session_id: "session-2",
+        turn_id: "turn-2",
+        turn_index: 0,
+        messages: [
+          {
+            role: "user",
+            text: "model supplied wrong agent proof",
+            observed_at: "2026-06-06T00:00:00.000Z",
+            message_index: 0
+          }
+        ]
+      });
+      runtime.ingest.ingestTurn({
+        agent_id: "agent-1",
+        session_id: "session-2",
+        turn_id: "turn-3",
+        turn_index: 0,
+        messages: [
+          {
+            role: "user",
+            text: "model supplied wrong session proof",
+            observed_at: "2026-06-06T00:00:00.000Z",
+            message_index: 0
+          }
+        ]
+      });
+
+      const recall = await createPartnerMemOpenClawTools(runtime)
+        .find((tool) => tool.name === "partner_mem_recall")!
+        .execute(
+          "call-identity",
+          {
+            query: "proof",
+            agent_id: "agent-2",
+            session_id: "session-2",
+            [crossAgentSwitchKey]: true,
+            limit: 5
+          },
+          { agentId: "agent-1", sessionKey: "session-1" }
+        );
+
+      expect(recall.isError).not.toBe(true);
+      expect(JSON.stringify(recall.details)).toContain("trusted context recall proof");
+      expect(JSON.stringify(recall.details)).not.toContain("model supplied wrong agent proof");
+      expect(JSON.stringify(recall.details)).not.toContain("model supplied wrong session proof");
+    } finally {
+      cleanupRuntime(runtime);
+    }
+  });
+
+  it("returns an error without facade access when a memory tool has no trusted agent identity", async () => {
+    const runtime = createTempRuntime();
+    const originalRecall = runtime.facade.partner_mem_recall;
+    let facadeCalled = false;
+    runtime.facade.partner_mem_recall = ((input) => {
+      facadeCalled = true;
+      return originalRecall.call(runtime.facade, input);
+    }) as typeof runtime.facade.partner_mem_recall;
+
+    try {
+      const recall = await createPartnerMemOpenClawTools(runtime)
+        .find((tool) => tool.name === "partner_mem_recall")!
+        .execute("call-missing-identity", { query: "anything", limit: 5 });
+
+      expect(recall.isError).toBe(true);
+      expect(recall.content[0]?.text).toContain("trusted OpenClaw identity");
+      expect(facadeCalled).toBe(false);
+    } finally {
+      runtime.facade.partner_mem_recall = originalRecall;
       cleanupRuntime(runtime);
     }
   });

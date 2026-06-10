@@ -17,7 +17,7 @@ export interface EvidenceResolveInput {
   include_raw_neighbors?: boolean;
   /** If set, traversal only follows edges owned by this agent. */
   agent_id?: string;
-  /** When true, traversal may follow edges owned by other agents. */
+  /** Core/admin-only traversal switch; ordinary tools cannot set it. */
   allow_cross_agent?: boolean;
 }
 

@@ -3,7 +3,8 @@ import { DEFAULT_PARTNER_MEM_OPENCLAW_CONFIG } from "../src/config.js";
 import {
   extractOpenClawVisibleMessages,
   formatContextBlockForOpenClaw,
-  normalizeHostTurn
+  normalizeHostTurn,
+  resolveOpenClawSessionIdentity
 } from "../src/openclaw-adapter.js";
 
 describe("OpenClaw adapter", () => {
@@ -106,6 +107,16 @@ describe("OpenClaw adapter", () => {
     };
 
     expect(normalizeHostTurn(envelope).messages[0]?.text).toBe("OpenClaw exact raw text");
+  });
+
+  it("does not invent default shared identity when trusted context is missing", () => {
+    expect(resolveOpenClawSessionIdentity({ agentId: "event-agent", sessionId: "event-session" }, {})).toBeUndefined();
+    expect(resolveOpenClawSessionIdentity({}, { sessionKey: "session-1" })).toBeUndefined();
+    expect(resolveOpenClawSessionIdentity({}, { agentId: "agent-1" })).toBeUndefined();
+    expect(resolveOpenClawSessionIdentity({}, { agentId: "agent-1", sessionKey: "session-1" })).toEqual({
+      agent_id: "agent-1",
+      session_id: "session-1"
+    });
   });
 
   it("extracts an oversized message as a whole so capture can skip it without slicing", () => {

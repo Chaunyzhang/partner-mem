@@ -15,6 +15,13 @@ export interface OpenClawTurnIdentity {
   turn_index: number;
 }
 
+export class MissingOpenClawIdentityError extends Error {
+  constructor() {
+    super("Partner-Mem requires trusted OpenClaw identity before accessing memory.");
+    this.name = "MissingOpenClawIdentityError";
+  }
+}
+
 export function extractOpenClawVisibleMessages(messages: unknown[]): RawMessageInput[] {
   const observedAt = new Date().toISOString();
   const visibleMessages: RawMessageInput[] = [];
@@ -45,7 +52,7 @@ export function resolveOpenClawTurnIdentity(
   runtime: Pick<PartnerMemOpenClawRuntime, "nextTurnIndex">,
   messages: RawMessageInput[] = []
 ): OpenClawTurnIdentity {
-  const sessionIdentity = resolveOpenClawSessionIdentity(event, ctx);
+  const sessionIdentity = requireOpenClawSessionIdentity(event, ctx);
   const eventRecord = isRecord(event) ? event : {};
   const turnId =
     readString(eventRecord.turnId) ??
@@ -67,21 +74,20 @@ export function resolveOpenClawTurnIdentity(
   };
 }
 
-export function resolveOpenClawSessionIdentity(event: unknown, ctx: unknown): OpenClawSessionIdentity {
-  const eventRecord = isRecord(event) ? event : {};
+export function requireOpenClawSessionIdentity(event: unknown, ctx: unknown): OpenClawSessionIdentity {
+  const identity = resolveOpenClawSessionIdentity(event, ctx);
+  if (!identity) throw new MissingOpenClawIdentityError();
+  return identity;
+}
+
+export function resolveOpenClawSessionIdentity(_event: unknown, ctx: unknown): OpenClawSessionIdentity | undefined {
   const ctxRecord = isRecord(ctx) ? ctx : {};
-  const agentId =
-    readString(ctxRecord.agentId) ??
-    readString(eventRecord.agentId) ??
-    readString(eventRecord.agent_id) ??
-    "openclaw-default-agent";
+  const agentId = readString(ctxRecord.agentId);
   const sessionId =
     readString(ctxRecord.sessionKey) ??
-    readString(ctxRecord.sessionId) ??
-    readString(eventRecord.sessionKey) ??
-    readString(eventRecord.sessionId) ??
-    readString(eventRecord.session_id) ??
-    "openclaw-default-session";
+    readString(ctxRecord.sessionId);
+
+  if (!agentId || !sessionId) return undefined;
 
   return {
     agent_id: agentId,

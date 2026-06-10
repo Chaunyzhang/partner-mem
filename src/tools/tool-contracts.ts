@@ -27,11 +27,9 @@ export const toolSchemas = {
     description: "Search Partner-Mem candidate routes. Candidate results are not final evidence.",
     inputSchema: {
       type: "object",
-      required: ["query", "agent_id", "limit"],
+      required: ["query", "limit"],
       properties: {
         query: { type: "string" },
-        agent_id: { type: "string" },
-        session_id: { type: "string" },
         time_window: timeWindowSchema,
         limit: { type: "integer", minimum: 1 }
       }
@@ -42,14 +40,11 @@ export const toolSchemas = {
     description: "Recall verified original raw text evidence through the graph resolver.",
     inputSchema: {
       type: "object",
-      required: ["query", "agent_id", "limit"],
+      required: ["query", "limit"],
       properties: {
         query: { type: "string" },
-        agent_id: { type: "string" },
-        session_id: { type: "string" },
         time_window: timeWindowSchema,
-        limit: { type: "integer", minimum: 1 },
-        allow_cross_agent: { type: "boolean" }
+        limit: { type: "integer", minimum: 1 }
       }
     }
   },
@@ -58,10 +53,8 @@ export const toolSchemas = {
     description: "Return recent or filtered raw memory timeline items.",
     inputSchema: {
       type: "object",
-      required: ["agent_id", "limit"],
+      required: ["limit"],
       properties: {
-        agent_id: { type: "string" },
-        session_id: { type: "string" },
         since: { type: "string" },
         until: { type: "string" },
         limit: { type: "integer", minimum: 1 }

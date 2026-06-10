@@ -297,7 +297,7 @@ describe("RecallRouter", () => {
     expect(packet.blocked_paths.map((path) => path.reason)).toContain("disallowed_edge_class");
   });
 
-  it("blocks cross-agent evidence paths by default and allows them when requested", () => {
+  it("blocks cross-agent evidence paths in ordinary recall without a cross-agent switch", () => {
     const store = createInitializedStore();
     const rawHash = hashText("shared proof from another agent");
     store.createNode({
@@ -351,15 +351,8 @@ describe("RecallRouter", () => {
       agent_id: "agent-1",
       limit: 3
     });
-    const allowed = router.recall({
-      query: "shared proof",
-      agent_id: "agent-1",
-      limit: 3,
-      allow_cross_agent: true
-    });
 
     expect(blocked.evidence_items).toEqual([]);
     expect(blocked.blocked_paths.map((path) => path.reason)).toContain("cross_agent_edge_blocked");
-    expect(allowed.evidence_items.map((item) => item.text)).toEqual(["shared proof from another agent"]);
   });
 });

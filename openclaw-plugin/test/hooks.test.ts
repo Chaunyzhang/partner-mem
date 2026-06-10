@@ -68,6 +68,34 @@ describe("Partner-Mem OpenClaw hooks", () => {
     }
   });
 
+  it("skips capture without writing default-agent memory when trusted identity is missing", () => {
+    const warnings: unknown[] = [];
+    const runtime = createTempRuntime({
+      logger: { warn: (_message: string, meta?: unknown) => warnings.push(meta) }
+    });
+    try {
+      captureAgentEnd(
+        {
+          runId: "run-1",
+          success: true,
+          messages: [
+            { role: "user", content: "missing identity user text", message_index: 0 },
+            { role: "assistant", content: "missing identity assistant text", message_index: 1 }
+          ]
+        },
+        {},
+        runtime
+      );
+
+      expect(countRuntimeRows(runtime, "memory_nodes")).toBe(0);
+      expect(countRuntimeRows(runtime, "raw_payloads")).toBe(0);
+      expect(warnings.length).toBeGreaterThan(0);
+      expect(JSON.stringify(warnings)).toContain("trusted OpenClaw identity");
+    } finally {
+      cleanupRuntime(runtime);
+    }
+  });
+
   it("filters channel conversation metadata before buffering captured turns", () => {
     const runtime = createTempRuntime();
     const originalIngest = runtime.ingest.ingestTurn;
@@ -589,6 +617,42 @@ describe("Partner-Mem OpenClaw hooks", () => {
       expect(result?.appendContext).not.toContain("fake summary proof");
       expect(result).not.toHaveProperty("prependContext");
       expect(result).not.toHaveProperty("systemPrompt");
+    } finally {
+      cleanupRuntime(runtime);
+    }
+  });
+
+  it("skips auto recall injection when trusted identity is missing", () => {
+    const warnings: unknown[] = [];
+    const runtime = createTempRuntime({
+      logger: { warn: (_message: string, meta?: unknown) => warnings.push(meta) }
+    });
+    try {
+      captureAgentEnd(
+        {
+          runId: "run-1",
+          success: true,
+          messages: [
+            { role: "user", content: "identity guarded recall proof", message_index: 0 },
+            { role: "assistant", content: "identity guarded recall reply", message_index: 1 }
+          ]
+        },
+        { agentId: "agent-1", sessionKey: "session-1" },
+        runtime
+      );
+
+      const result = recallBeforePromptBuild(
+        {
+          prompt: "identity guarded",
+          messages: [{ role: "user", content: "identity guarded" }]
+        },
+        {},
+        runtime
+      );
+
+      expect(result).toBeUndefined();
+      expect(warnings.length).toBeGreaterThan(0);
+      expect(JSON.stringify(warnings)).toContain("trusted OpenClaw identity");
     } finally {
       cleanupRuntime(runtime);
     }
