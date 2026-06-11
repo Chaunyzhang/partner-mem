@@ -206,4 +206,59 @@ describe("RawIngestService", () => {
     expect(store.getNode("summary")).toBeUndefined();
     expect(store.countRows("summary_payloads")).toBe(0);
   });
+
+  it("connects adjacent persisted turns with a temporal FOLLOWS edge", () => {
+    const store = createInitializedStore();
+    const service = new RawIngestService(store);
+
+    const first = service.ingestTurn({
+      agent_id: "agent-1",
+      session_id: "session-1",
+      turn_id: "turn-1",
+      turn_index: 0,
+      messages: [
+        {
+          role: "user",
+          text: "first turn user",
+          observed_at: "2026-01-01T00:00:00.000Z",
+          message_index: 0
+        },
+        {
+          role: "assistant",
+          text: "first turn assistant",
+          observed_at: "2026-01-01T00:00:01.000Z",
+          message_index: 1
+        }
+      ]
+    });
+    const second = service.ingestTurn({
+      agent_id: "agent-1",
+      session_id: "session-1",
+      turn_id: "turn-2",
+      turn_index: 1,
+      messages: [
+        {
+          role: "user",
+          text: "second turn user",
+          observed_at: "2026-01-01T00:00:02.000Z",
+          message_index: 2
+        },
+        {
+          role: "assistant",
+          text: "second turn assistant",
+          observed_at: "2026-01-01T00:00:03.000Z",
+          message_index: 3
+        }
+      ]
+    });
+
+    const followsEdges = store.listOutgoingEdges(second.raw_node_ids[0] ?? "", {
+      edge_class: "temporal",
+      edge_type: "FOLLOWS"
+    });
+
+    expect(followsEdges).toHaveLength(1);
+    expect(followsEdges[0]?.to_node_id).toBe(first.raw_node_ids[1]);
+    expect(followsEdges[0]?.target_hash).toBe(store.getRawPayload(first.raw_node_ids[1] ?? "")?.source_hash);
+  });
 });

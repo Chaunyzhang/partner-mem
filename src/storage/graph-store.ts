@@ -7,6 +7,7 @@ import {
   type RawMessageRole,
   type RevisionEdgeType
 } from "../core/contracts.js";
+import { buildFtsIndexText, buildFtsMatchQuery } from "./fts-text.js";
 import type { SqliteDatabase } from "./schema.js";
 
 export interface MemoryNode {
@@ -302,7 +303,12 @@ export class GraphStore {
       .prepare(
         "INSERT INTO node_fts(node_id, agent_id, session_id, node_type, text) VALUES (?, ?, ?, ?, ?)"
       )
-      .run(input.node_id, input.agent_id, input.session_id ?? null, input.node_type, input.text);
+      .run(input.node_id, input.agent_id, input.session_id ?? null, input.node_type, buildFtsIndexText(input.text));
+  }
+
+  replaceFtsNode(input: FtsNodeInput): void {
+    this.db.prepare("DELETE FROM node_fts WHERE node_id = ?").run(input.node_id);
+    this.insertFtsNode(input);
   }
 
   insertEvidencePacketAudit(input: EvidencePacketAuditInput): void {
@@ -347,6 +353,34 @@ export class GraphStore {
       );
   }
 
+  pruneAuditLogs(retainMaxRows: number): void {
+    if (!Number.isInteger(retainMaxRows) || retainMaxRows < 0) {
+      throw new TypeError("retainMaxRows must be a non-negative integer");
+    }
+
+    this.db
+      .prepare(
+        `DELETE FROM retrieval_runs
+         WHERE rowid NOT IN (
+           SELECT rowid FROM retrieval_runs
+           ORDER BY created_at DESC, run_id DESC
+           LIMIT ?
+         )`
+      )
+      .run(retainMaxRows);
+
+    this.db
+      .prepare(
+        `DELETE FROM evidence_packets
+         WHERE rowid NOT IN (
+           SELECT rowid FROM evidence_packets
+           ORDER BY created_at DESC, packet_id DESC
+           LIMIT ?
+         )`
+      )
+      .run(retainMaxRows);
+  }
+
   searchFts(
     query: string,
     agentId: string,
@@ -357,7 +391,7 @@ export class GraphStore {
     const sessionClause = sessionId ? "AND f.session_id = ?" : "";
     const sinceClause = timeWindow?.since ? "AND n.observed_at >= ?" : "";
     const untilClause = timeWindow?.until ? "AND n.observed_at <= ?" : "";
-    const params: unknown[] = [escapeFtsQuery(query), agentId];
+    const params: unknown[] = [buildFtsMatchQuery(query), agentId];
     if (sessionId) params.push(sessionId);
     if (timeWindow?.since) params.push(timeWindow.since);
     if (timeWindow?.until) params.push(timeWindow.until);
@@ -400,21 +434,77 @@ export class GraphStore {
 
     const rows = this.db
       .prepare(
+        `SELECT *
+         FROM (
+          SELECT
+            n.node_id, n.agent_id, n.session_id, n.node_type, n.status, n.created_at,
+            n.updated_at, n.observed_at, n.valid_from, n.valid_to, n.invalidated_at,
+            n.topic_group, n.sequence, n.supersedes, n.superseded_by, n.content_hash, n.metadata_json,
+            p.role, p.text, p.normalized_text, p.token_count, p.turn_id,
+            p.turn_index, p.message_index, p.source_hash
+          FROM memory_nodes n
+          JOIN raw_payloads p ON p.node_id = n.node_id
+          WHERE ${clauses.join(" AND ")}
+          ORDER BY n.observed_at DESC, p.turn_index DESC, p.message_index DESC
+          LIMIT ?
+         )
+         ORDER BY observed_at, turn_index, message_index`
+      )
+      .all(...params) as Array<MemoryNode & RawPayload>;
+
+    return rows.map(mapRawTimelineRow);
+  }
+
+  getMaxRawMessageIndex(input: { agent_id: string; session_id: string }): number | undefined {
+    const row = this.db
+      .prepare(
+        `SELECT MAX(p.message_index) AS message_index
+         FROM memory_nodes n
+         JOIN raw_payloads p ON p.node_id = n.node_id
+         WHERE n.agent_id = ?
+           AND n.session_id = ?
+           AND n.node_type = 'raw_message'`
+      )
+      .get(input.agent_id, input.session_id) as { message_index: number | null } | undefined;
+
+    return typeof row?.message_index === "number" ? row.message_index : undefined;
+  }
+
+  getLatestRawTimelineItemBefore(input: {
+    agent_id: string;
+    session_id: string;
+    turn_index: number;
+    message_index: number;
+  }): RawTimelineItem | undefined {
+    const row = this.db
+      .prepare(
         `SELECT
           n.node_id, n.agent_id, n.session_id, n.node_type, n.status, n.created_at,
           n.updated_at, n.observed_at, n.valid_from, n.valid_to, n.invalidated_at,
           n.topic_group, n.sequence, n.supersedes, n.superseded_by, n.content_hash, n.metadata_json,
           p.role, p.text, p.normalized_text, p.token_count, p.turn_id,
           p.turn_index, p.message_index, p.source_hash
-        FROM memory_nodes n
-        JOIN raw_payloads p ON p.node_id = n.node_id
-        WHERE ${clauses.join(" AND ")}
-        ORDER BY n.observed_at, p.turn_index, p.message_index
-        LIMIT ?`
+         FROM memory_nodes n
+         JOIN raw_payloads p ON p.node_id = n.node_id
+         WHERE n.agent_id = ?
+           AND n.session_id = ?
+           AND n.node_type = 'raw_message'
+           AND (
+            p.turn_index < ?
+            OR (p.turn_index = ? AND p.message_index < ?)
+           )
+         ORDER BY p.turn_index DESC, p.message_index DESC, n.observed_at DESC
+         LIMIT 1`
       )
-      .all(...params) as Array<MemoryNode & RawPayload>;
+      .get(
+        input.agent_id,
+        input.session_id,
+        input.turn_index,
+        input.turn_index,
+        input.message_index
+      ) as (MemoryNode & RawPayload) | undefined;
 
-    return rows.map((row) => this.toRawTimelineItem(row));
+    return row ? mapRawTimelineRow(row) : undefined;
   }
 
   nextTopicSequence(agentId: string, topicGroup: string): number {
@@ -445,7 +535,7 @@ export class GraphStore {
       )
       .get(agentId, topicGroup) as (MemoryNode & RawPayload) | undefined;
 
-    return row ? this.toRawTimelineItem(row) : undefined;
+    return row ? mapRawTimelineRow(row) : undefined;
   }
 
   markNodeSuperseded(nodeId: string, supersededBy: string, updatedAt: string): void {
@@ -571,46 +661,39 @@ export class GraphStore {
       .all(...params) as MemoryEdge[];
   }
 
-  private toRawTimelineItem(row: MemoryNode & RawPayload): RawTimelineItem {
-    return {
-      node: {
-        node_id: row.node_id,
-        agent_id: row.agent_id,
-        session_id: row.session_id,
-        node_type: row.node_type,
-        status: row.status,
-        created_at: row.created_at,
-        updated_at: row.updated_at,
-        observed_at: row.observed_at,
-        valid_from: row.valid_from,
-        valid_to: row.valid_to,
-        invalidated_at: row.invalidated_at,
-        topic_group: row.topic_group,
-        sequence: row.sequence,
-        supersedes: row.supersedes,
-        superseded_by: row.superseded_by,
-        content_hash: row.content_hash,
-        metadata_json: row.metadata_json
-      },
-      payload: {
-        node_id: row.node_id,
-        role: row.role,
-        text: row.text,
-        normalized_text: row.normalized_text,
-        token_count: row.token_count,
-        turn_id: row.turn_id,
-        turn_index: row.turn_index,
-        message_index: row.message_index,
-        source_hash: row.source_hash
-      }
-    };
-  }
 }
 
-function escapeFtsQuery(query: string): string {
-  return query
-    .split(/\s+/u)
-    .filter((term) => term.length > 0)
-    .map((term) => `"${term.replaceAll('"', '""')}"`)
-    .join(" ");
+function mapRawTimelineRow(row: MemoryNode & RawPayload): RawTimelineItem {
+  return {
+    node: {
+      node_id: row.node_id,
+      agent_id: row.agent_id,
+      session_id: row.session_id,
+      node_type: row.node_type,
+      status: row.status,
+      created_at: row.created_at,
+      updated_at: row.updated_at,
+      observed_at: row.observed_at,
+      valid_from: row.valid_from,
+      valid_to: row.valid_to,
+      invalidated_at: row.invalidated_at,
+      topic_group: row.topic_group,
+      sequence: row.sequence,
+      supersedes: row.supersedes,
+      superseded_by: row.superseded_by,
+      content_hash: row.content_hash,
+      metadata_json: row.metadata_json
+    },
+    payload: {
+      node_id: row.node_id,
+      role: row.role,
+      text: row.text,
+      normalized_text: row.normalized_text,
+      token_count: row.token_count,
+      turn_id: row.turn_id,
+      turn_index: row.turn_index,
+      message_index: row.message_index,
+      source_hash: row.source_hash
+    }
+  };
 }

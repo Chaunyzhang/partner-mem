@@ -39,9 +39,9 @@ Do not create project-local duplicate rule files unless the user explicitly asks
 - When working with unfamiliar SDKs, APIs, frameworks, packages, or current external behavior, check official or upstream documentation first.
 - Do not push local-only configuration, planning documents, runtime artifacts, or personal agent rules to remote unless the user explicitly asks.
 
-## 4. HiveWard Defaults
+## 4. Clean Foundation Defaults
 
-Use these stricter rules for HiveWard, execution rebuild, lifecycle, scheduler, persistence, session, approval, security, API-contract, cleanup, refactor, rebuild, and related PR work.
+Use these stricter rules for clean rebuild, lifecycle, scheduler, persistence, session, approval, security, API-contract, cleanup, refactor, rebuild, and related PR work.
 
 - Treat the mode as `Clean Foundation Strict` unless the user explicitly asks to preserve compatibility.
 - In `Clean Foundation Strict`, delete all non-canonical logic.
@@ -77,7 +77,7 @@ Every clean refactor plan or prompt must state:
 
 ## 6. Model Output Governance
 
-- HiveWard is a scheduling and orchestration layer first.
+- Platform orchestration is a scheduling and state-management layer first.
 - Platform code owns routing, lifecycle, persistence, permissions, security boundaries, and declared artifact publication.
 - Agents and Managers own judgment, strategy, content, tradeoffs, and expression inside explicit contracts.
 - Enforce deterministic product contracts in code.
@@ -88,60 +88,42 @@ Every clean refactor plan or prompt must state:
 
 ## 7. Field And Concept Explanation Rules
 
-When explaining, reviewing, planning, or writing prompts for HiveWard lifecycle, session, approval, persistence, API, runtime, or frontend projection work:
+For every project and every engineering document, prompt, review, or explanation:
 
-- Do not define an important concept with only a label.
-- Do not create a detached "field explanation" block when the explanation is needed for current reading.
-- Explain fields inline at the point where each field appears, using this shape: `fieldName`（中文翻译：一句说明它在产品/代码里回答什么问题）.
-- If the same field appears repeatedly in one answer, explain it inline on first mention and only repeat the explanation when the local meaning changes.
-- Example: `nativeSessionId`（原生会话 ID：表示要恢复哪个 provider 真实会话）.
-- For every important field, type, mode, lifecycle state, product term, config key, API name, status value, command name, or code identifier, explain:
-  - what question it answers;
-  - its allowed values;
-  - each value's business meaning;
-  - who creates it;
-  - where it is stored;
-  - who consumes it;
-  - where it is projected to UI;
-  - which user action it represents;
-  - which actions it permits;
-  - which actions it forbids;
-  - which files/functions currently read it when relevant.
-- Separate product semantics from engineering mechanics.
-- State the user-facing effect first, then the program-level contract, affected files, data flow, APIs, persistence path, frontend behavior, tests, and acceptance criteria.
-- When a field such as `kind`, `capabilities`, `discussion`, `status`, or `mode` is mentioned, define its single responsibility inline and explicitly say which decisions must not be derived from it.
-- If a current implementation is partially correct, say exactly which part is already correct, which part is wrong, and which path is the required source of truth after the change.
+- Explain every important field, type, mode, lifecycle state, product term, config key, API name, status value, command name, and code identifier at first use as `identifier`（中文翻译：人话说明它回答什么问题、干嘛用）.
+- For decision-bearing identifiers, also state allowed values, producer, storage, consumer, UI projection, represented user action, allowed actions, forbidden actions, and current readers when relevant.
+- Do not use a detached glossary when inline explanation is needed.
+- State product meaning before engineering mechanics.
+- State user-facing effect before program contract, files, data flow, APIs, persistence, UI, tests, and acceptance criteria.
+- For identifiers such as `kind`, `capabilities`, `status`, and `mode`, state the single responsibility and what must not be derived from it.
+- If current code is partly correct, state exactly what is correct, what is wrong, and the required source of truth.
 
 ## 8. Engineering Prompt Rules
 
-- Before writing an implementation prompt or engineering document, inspect relevant code, tests, schemas, routes, stores, existing docs, and this `AGENTS.md`.
-- Do not write detailed documents from assumptions. A detailed prompt without code-location evidence is a failed prompt.
-- Every substantial engineering prompt or document must include a `Code Evidence` section that lists concrete files, functions, tests, contracts, or migrations inspected, and states what each artifact proves.
-- Separate code evidence, inference, unknowns, and user requirements. Do not turn an inference or unknown into an implementation instruction.
-- If the code evidence does not support the intended architecture, stop and report the mismatch instead of writing a detailed useless document.
-- For any substantial prompt, create a repo-local handoff file unless the user explicitly asks for inline copy-paste text.
-- Put every instruction intended for the next engineer or agent inside one copyable Markdown block or handoff file.
-- Text outside the block or file is only user-facing explanation and must not contain hidden implementation requirements.
+- Inspect relevant code, tests, schemas, routes, stores, docs, and this `AGENTS.md` before writing any implementation prompt or engineering document.
+- Do not write detailed prompts or documents from assumptions.
+- Every substantial engineering prompt or document must include `Code Evidence` with concrete files, functions, tests, contracts, or migrations inspected, and what each proves.
+- Separate evidence, inference, unknowns, and user requirements.
+- If evidence does not support the intended architecture, stop and report the mismatch.
+- Engineering document = execution manual. It must contain researched design, code evidence, decisions, exact file scope, contracts, implementation steps, tests, gates, and stop conditions.
+- Engineering prompt = entry instruction. It must contain background, document paths, execution order, PR/branch/stack policy, hard rules, stop conditions, verification expectations, and downstream completion-report requirements.
+- Do not let the engineer infer architecture, ownership, old-path disposition, field semantics, tests, migration behavior, or acceptance criteria.
+- Put every instruction for the next engineer inside one prompt block or handoff file. No hidden requirements outside it.
+- Inline prompt blocks must use an outer fence opened exactly as ````markdown and closed exactly as ````. Do not use a three-backtick outer fence.
+- Do not auto-inject workflow wrappers, app links, skill links, connector invocations, or opening commands. Include them only when the current user explicitly asks or the active workflow requires them.
+- Preserve the user-supplied prompt macro-structure. Replace task content only.
+- When delivering an engineer prompt to the user, do not append your own full completion report unless explicitly asked.
 - Write engineering prompts in Chinese by default; keep code identifiers unchanged.
-- Start every prompt with: read `AGENTS.md`, inspect referenced code, follow the document in order, do not skip sections, keep scope tight, avoid guessing, verify every claim, and report deviations.
-- Do not let the engineer infer architecture.
-- Do not give optional compatibility paths in `Clean Foundation Strict`.
-- Include a coverage inventory for touched features: concepts, fields, allowed values, producers, consumers, APIs, persistence, frontend state, UI controls, lifecycle transitions, tests, and legacy paths to delete.
-- Include a `Forbidden Shapes` section for repeated failure modes.
-- In `Clean Foundation Strict`, architecture-level documents are insufficient for implementation. Every substantial implementation prompt must be decomposed into PR-specific construction sheets.
+- Prompt body must tell the engineer to read `AGENTS.md`, inspect referenced code, follow documents in order, keep scope tight, avoid guessing, verify claims, and report deviations.
+- For PR, branch, release, or stacked work, the prompt must state: new PR or not, branch action, base branch/head, work branch, stacked policy, dirty-worktree policy, commit/push/PR permission, and pre-branch stop conditions.
+- In `Clean Foundation Strict`, no optional compatibility paths.
+- In `Clean Foundation Strict`, architecture plans are not enough; use PR-specific construction sheets.
 - For `Clean Foundation Strict` engineering handoffs, each PR construction sheet must be a separate repo-local Markdown file unless the user explicitly requests a single combined document. A combined overview document may exist, but it cannot replace per-PR construction-sheet files.
 - Each PR construction sheet must include: exact base and branch, exact scope, allowed files/modules, forbidden files/modules, new contracts/types/fields, field producers, storage, consumers, UI projection, allowed values, forbidden decisions, old paths deleted in that PR, old paths not yet deleted but forbidden from new reads/writes in that PR, later deletion PR numbers for any remaining old paths, APIs to add/change/delete, persistence/schema/migration requirements, service/worker ownership requirements, frontend projection requirements, positive tests, negative tests, source gates, behavior gates, mechanical acceptance checklist, and explicit failure conditions.
-- A prompt is incomplete if the engineer must infer architecture, choose ownership, decide old-path disposition, invent field semantics, decide test coverage, decide migration behavior, or guess acceptance criteria.
 - A clean refactor prompt must be executable as a construction checklist, not merely understandable as an architecture plan.
-- For engineering handoff delivery, the final user-facing answer must include one copyable Markdown block containing the engineer prompt. That prompt must explain background, document paths, execution order, core rules, stop conditions, verification expectations, and completion-report requirements.
-- Do not deliver only file paths. Do not hide implementation instructions outside the copyable Markdown block or handoff files.
 - Keep engineering documents and engineer prompts separate: per-PR construction-sheet files are the executable documents; the final copyable engineer prompt is the entry instruction. Do not turn the engineer prompt itself into a pseudo construction document or prompt file unless the user explicitly asks for a prompt file.
-- After every substantial engineering prompt, add a separate user-facing section named `人话提示词解释`.
-- After every substantial engineering prompt, add a separate user-facing section named `提示词自检报告`.
-
-`人话提示词解释` must explain what the prompt asks the engineer to do, why it is written that way, and how it maps to the confirmed mode.
-
-`提示词自检报告` must state whether the prompt fully follows these rules, list any deviations or `none`, and provide evidence points such as confirmed mode, canonical owner, deletion list, forbidden shapes, verification, and negative tests.
+- After a substantial engineering prompt, add only brief user-facing `人话提示词解释`, `提示词自检报告`, and `Change classification`, unless the user asked for the prompt block only.
+- Global rules must not contain project-specific product names, PR numbers, feature names, or domain checklists. Put project-specific requirements in the project document, project-local `AGENTS.md`, construction sheet, or actual prompt.
 
 ## 9. PR Rules
 
@@ -212,7 +194,7 @@ Required negative tests for clean refactor work must prove old logic cannot:
 
 ## 12. Completion Report
 
-Every code, document, prompt, review, or PR completion report must use this structure. For PR work, use `## PR<N> 完成报告`; for non-PR work, use `## 完成报告`.
+When reporting completed code, document, review, or PR work to the user, use this structure unless the user explicitly requested only a copy-paste engineer prompt or another constrained output shape. For PR work, use `## PR<N> 完成报告`; for non-PR work, use `## 完成报告`. When delivering an engineer prompt, put the completion-report requirements inside the prompt as instructions for the downstream engineer; do not also use this template as your own user-facing report unless the user asks for a completion report.
 
 ```text
 ## PR<N> 完成报告
@@ -252,17 +234,7 @@ Every code, document, prompt, review, or PR completion report must use this stru
 
 `特别注意落实情况` must check every `特别注意`, user-highlighted requirement, engineering-document priority item, and PR construction-sheet special item one by one. Each item must include code evidence, test evidence, source-gate evidence, or behavior-gate evidence. Do not replace this section with a summary sentence.
 
-When the task involves HiveWard run-room/lifecycle/inbox/kanban/feed cleanup, `特别注意落实情况` must explicitly check any applicable items from this list:
-
-- `RunRoom.status`（运行房间状态：看板判断 run 生命周期） writes terminal success, failure, and cancellation states.
-- `HumanActionRequest.status`（人类动作请求状态：用户是否仍需处理） leaves `pending` after the user completes the corresponding action.
-- `BlueprintKanbanService` is the only Blueprint Kanban projection owner.
-- Store-level `listBlueprintKanbanCards` / `projectBlueprintKanbanCards` are deleted.
-- Old `recent_runs` and dynamically constructed equivalents are deleted.
-- Old `InboxItem` normal product paths are deleted; retained historical data is described exactly as `保留为历史事实，不参与决策`.
-- `RunRoomFeed` does not synthesize `historical-run:*` fake normal rows when canonical feed facts are missing.
-- `HistoryPage` is renamed/replaced by `BlueprintKanbanPage`, and Blueprint Kanban main-page `.history-*` old styles are deleted.
-- `decision_required` cannot be closed by ordinary text reply and must go through the canonical approval owner.
+When the task prompt, engineering document, construction sheet, or user message includes a project-specific special-attention checklist, `特别注意落实情况` must check those items one by one with evidence. Do not place project-specific product checklists in this global rule file.
 
 `Positive tests（正向测试）` must list required positive tests and actual results. If none were applicable, state `none` and explain why.
 
