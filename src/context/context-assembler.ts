@@ -31,7 +31,6 @@ export class ContextAssembler {
     const recent_raw_timeline = request.include_recent
       ? this.facade.partner_mem_timeline({
           agent_id: request.agent_id,
-          ...(request.session_id ? { session_id: request.session_id } : {}),
           limit: Math.min(this.config.context.recentMessages, budget)
         }).evidence_items
       : [];
@@ -41,7 +40,6 @@ export class ContextAssembler {
         ? this.facade.partner_mem_recall({
             query: request.current_prompt,
             agent_id: request.agent_id,
-            ...(request.session_id ? { session_id: request.session_id } : {}),
             limit: this.config.context.evidenceMaxItems
           }).evidence_items
         : [];

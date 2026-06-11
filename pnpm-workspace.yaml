@@ -1,2 +1,5 @@
+packages:
+  - "openclaw-plugin"
+
 allowBuilds:
   '@photostructure/sqlite': true

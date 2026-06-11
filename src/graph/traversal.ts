@@ -6,6 +6,10 @@ import { toPathStep } from "../evidence/evidence-packet-builder.js";
 
 export interface WalkEvidencePathOptions {
   max_depth: number;
+  /** If set, only follow edges owned by this agent. Blocked edges are reported as blocked_paths. */
+  agent_id?: string;
+  /** Core/admin-only traversal switch. 保留为历史事实，不参与决策 for ordinary tools. */
+  allow_cross_agent?: boolean;
 }
 
 export interface EvidenceTraversalResult {
@@ -57,6 +61,17 @@ export class GraphTraversal {
             candidate_node_id: startNodeId,
             terminal_node_id: edge.to_node_id,
             reason: "disallowed_edge_class",
+            path: path.map(toPathStep)
+          });
+          continue;
+        }
+
+        // Ordinary tools never set allow_cross_agent; core/admin-only use is isolated above.
+        if (options.agent_id && !options.allow_cross_agent && edge.agent_id !== options.agent_id) {
+          blocked_paths.push({
+            candidate_node_id: startNodeId,
+            terminal_node_id: edge.to_node_id,
+            reason: "cross_agent_edge_blocked",
             path: path.map(toPathStep)
           });
           continue;

@@ -54,14 +54,21 @@ export class RecallRouter {
   recall(input: RecallQuery): EvidencePacket {
     const candidates = this.seedIndex.search(input);
     const evidenceItems: EvidenceItem[] = [];
+    const seenRawNodeIds = new Set<string>();
     const blockedPaths: EvidencePacket["blocked_paths"] = [];
 
     for (const candidate of candidates) {
-      const packet = this.resolver.resolveEvidence({
+      const evidenceInput: Parameters<typeof this.resolver.resolveEvidence>[0] = {
         candidate_node_id: candidate.seed_node_id,
-        max_evidence_items: input.limit
-      });
-      evidenceItems.push(...packet.evidence_items);
+        max_evidence_items: input.limit,
+        agent_id: input.agent_id
+      };
+      const packet = this.resolver.resolveEvidence(evidenceInput);
+      for (const item of packet.evidence_items) {
+        if (seenRawNodeIds.has(item.raw_node_id)) continue;
+        evidenceItems.push(item);
+        seenRawNodeIds.add(item.raw_node_id);
+      }
       blockedPaths.push(...packet.blocked_paths);
       if (evidenceItems.length >= input.limit) break;
     }
