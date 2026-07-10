@@ -12,10 +12,16 @@ export interface SqliteDatabase {
   };
 }
 
-const MIGRATION_PATH = join(
+const INITIAL_MIGRATION_PATH = join(
   dirname(fileURLToPath(import.meta.url)),
   "migrations",
   "001_init_graph.sql"
+);
+
+const RUNTIME_OPERATIONS_MIGRATION_PATH = join(
+  dirname(fileURLToPath(import.meta.url)),
+  "migrations",
+  "003_runtime_operations.sql"
 );
 
 export const REQUIRED_TABLES = [
@@ -26,13 +32,16 @@ export const REQUIRED_TABLES = [
   "node_fts",
   "retrieval_runs",
   "evidence_packets",
+  "runtime_operation_receipts",
+  "runtime_turn_counters",
   "schema_migrations"
 ] as const;
 
 export function initializeSchema(db: SqliteDatabase): void {
-  db.exec(readFileSync(MIGRATION_PATH, "utf8"));
+  db.exec(readFileSync(INITIAL_MIGRATION_PATH, "utf8"));
   ensureRevisionTrackingSchema(db);
   backfillCjkFtsIndexText(db);
+  db.exec(readFileSync(RUNTIME_OPERATIONS_MIGRATION_PATH, "utf8"));
 }
 
 function ensureRevisionTrackingSchema(db: SqliteDatabase): void {

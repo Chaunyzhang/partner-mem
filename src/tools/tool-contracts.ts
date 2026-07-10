@@ -17,6 +17,7 @@ const resultClassValues = [
 
 const timeWindowSchema = {
   type: "object",
+  additionalProperties: false,
   properties: {
     since: { type: "string" },
     until: { type: "string" }
@@ -35,12 +36,13 @@ export const toolSchemas = {
     description: "Search Partner-Mem candidate routes. Candidate results are not final evidence.",
     inputSchema: {
       type: "object",
+      additionalProperties: false,
       required: ["query", "limit"],
       properties: {
         query: { type: "string" },
         scope: memoryScopeSchema,
         time_window: timeWindowSchema,
-        limit: { type: "integer", minimum: 1 }
+        limit: { type: "integer", minimum: 1, maximum: 50 }
       }
     }
   },
@@ -49,12 +51,13 @@ export const toolSchemas = {
     description: "Recall verified original raw text evidence through the graph resolver.",
     inputSchema: {
       type: "object",
+      additionalProperties: false,
       required: ["query", "limit"],
       properties: {
         query: { type: "string" },
         scope: memoryScopeSchema,
         time_window: timeWindowSchema,
-        limit: { type: "integer", minimum: 1 }
+        limit: { type: "integer", minimum: 1, maximum: 50 }
       }
     }
   },
@@ -63,11 +66,12 @@ export const toolSchemas = {
     description: "Return recent or filtered raw memory timeline items.",
     inputSchema: {
       type: "object",
+      additionalProperties: false,
       required: ["limit"],
       properties: {
         since: { type: "string" },
         until: { type: "string" },
-        limit: { type: "integer", minimum: 1 }
+        limit: { type: "integer", minimum: 1, maximum: 50 }
       }
     }
   },
@@ -76,6 +80,7 @@ export const toolSchemas = {
     description: "Report Partner-Mem storage, FTS, graph, evidence, and config health.",
     inputSchema: {
       type: "object",
+      additionalProperties: false,
       properties: {}
     }
   }

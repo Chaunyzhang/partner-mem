@@ -68,6 +68,20 @@ describe("GraphStore", () => {
     expect(previous?.node.node_id).toBe("raw-2");
     expect(previous?.payload.text).toBe("first assistant");
   });
+
+  it("uses savepoints for nested work on the same store transaction", () => {
+    const store = createInitializedStore();
+
+    expect(() =>
+      store.transaction(() => {
+        store.transaction(() => {
+          createRaw(store, "nested-raw", "agent-1", "session-1", 0, 0, "nested transaction");
+        });
+        throw new Error("rollback outer transaction");
+      })
+    ).toThrow("rollback outer transaction");
+    expect(store.getNode("nested-raw")).toBeUndefined();
+  });
 });
 
 function createRaw(

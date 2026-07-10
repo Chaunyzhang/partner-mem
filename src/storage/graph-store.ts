@@ -185,12 +185,28 @@ export interface RetrievalRunAuditInput {
   metadata_json?: string;
 }
 
+export interface RuntimeOperationReceipt {
+  operation_id: string;
+  host: string;
+  agent_id: string;
+  session_id: string;
+  operation_kind: "capture_turn";
+  payload_hash: string;
+  result_json: string;
+  committed_at: string;
+}
+
+export type InsertRuntimeOperationReceiptInput = RuntimeOperationReceipt;
+
 export interface EdgeFilter {
   edge_class?: EdgeClass;
   edge_type?: EdgeType;
 }
 
 export class GraphStore {
+  private transactionDepth = 0;
+  private savepointSequence = 0;
+
   constructor(private readonly db: SqliteDatabase) {}
 
   rawDb(): SqliteDatabase {
@@ -198,15 +214,77 @@ export class GraphStore {
   }
 
   transaction<T>(work: () => T): T {
-    this.db.exec("BEGIN IMMEDIATE");
+    const isOuterTransaction = this.transactionDepth === 0;
+    const savepoint = isOuterTransaction ? undefined : `partner_mem_${this.savepointSequence++}`;
+    this.db.exec(isOuterTransaction ? "BEGIN IMMEDIATE" : `SAVEPOINT ${savepoint}`);
+    this.transactionDepth += 1;
     try {
       const result = work();
-      this.db.exec("COMMIT");
+      this.db.exec(isOuterTransaction ? "COMMIT" : `RELEASE SAVEPOINT ${savepoint}`);
       return result;
     } catch (error) {
-      this.db.exec("ROLLBACK");
+      if (isOuterTransaction) {
+        this.db.exec("ROLLBACK");
+      } else {
+        this.db.exec(`ROLLBACK TO SAVEPOINT ${savepoint}`);
+        this.db.exec(`RELEASE SAVEPOINT ${savepoint}`);
+      }
       throw error;
+    } finally {
+      this.transactionDepth -= 1;
     }
+  }
+
+  getRuntimeOperationReceipt(input: {
+    operation_id: string;
+    host: string;
+    agent_id: string;
+  }): RuntimeOperationReceipt | undefined {
+    return this.db
+      .prepare(
+        `SELECT * FROM runtime_operation_receipts
+         WHERE host = ? AND agent_id = ? AND operation_id = ?`
+      )
+      .get(input.host, input.agent_id, input.operation_id) as RuntimeOperationReceipt | undefined;
+  }
+
+  insertRuntimeOperationReceipt(input: InsertRuntimeOperationReceiptInput): void {
+    this.db
+      .prepare(
+        `INSERT INTO runtime_operation_receipts (
+          operation_id, host, agent_id, session_id, operation_kind,
+          payload_hash, result_json, committed_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
+      )
+      .run(
+        input.operation_id,
+        input.host,
+        input.agent_id,
+        input.session_id,
+        input.operation_kind,
+        input.payload_hash,
+        input.result_json,
+        input.committed_at
+      );
+  }
+
+  allocateRuntimeTurnIndex(input: { agent_id: string; session_id: string; updated_at: string }): number {
+    const row = this.db
+      .prepare(
+        `INSERT INTO runtime_turn_counters (
+          agent_id, session_id, next_turn_index, updated_at
+        ) VALUES (?, ?, 1, ?)
+        ON CONFLICT(agent_id, session_id) DO UPDATE SET
+          next_turn_index = runtime_turn_counters.next_turn_index + 1,
+          updated_at = excluded.updated_at
+        RETURNING next_turn_index - 1 AS turn_index`
+      )
+      .get(input.agent_id, input.session_id, input.updated_at) as { turn_index: number } | undefined;
+
+    if (!row || !Number.isInteger(row.turn_index) || row.turn_index < 0) {
+      throw new Error("Partner-Mem failed to allocate a runtime turn index");
+    }
+    return row.turn_index;
   }
 
   createNode(input: CreateNodeInput): void {
