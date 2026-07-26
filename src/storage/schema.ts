@@ -3,11 +3,11 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { DatabaseSync } from "@photostructure/sqlite";
 
-const FOUNDATION_MIGRATION_PATH = join(
-  dirname(fileURLToPath(import.meta.url)),
-  "migrations",
-  "001_v1_foundation.sql"
-);
+const MIGRATION_DIRECTORY = join(dirname(fileURLToPath(import.meta.url)), "migrations");
+const MIGRATIONS = [
+  ["001_v1_foundation", "001_v1_foundation.sql"],
+  ["002_v1_immutability", "002_v1_immutability.sql"]
+] as const;
 
 export const CANONICAL_TABLES = [
   "agent_conversation_access",
@@ -22,28 +22,50 @@ export type PartnerMemDatabase = InstanceType<typeof DatabaseSync>;
 
 export function openPartnerMemDatabase(path: string): PartnerMemDatabase {
   const db = new DatabaseSync(path, { timeout: 5_000 });
-  db.exec("PRAGMA foreign_keys = ON");
-  db.exec("PRAGMA busy_timeout = 5000");
-  if (path !== ":memory:") db.exec("PRAGMA journal_mode = WAL");
-  initializeSchema(db);
-  return db;
+  try {
+    db.exec("PRAGMA foreign_keys = ON");
+    db.exec("PRAGMA busy_timeout = 5000");
+    if (path !== ":memory:") db.exec("PRAGMA journal_mode = WAL");
+    initializeSchema(db);
+    return db;
+  } catch (error) {
+    db.close();
+    throw error;
+  }
 }
 
 export function initializeSchema(db: PartnerMemDatabase): void {
   const existing = listApplicationTables(db);
   if (existing.length > 0) {
     assertOnlyCanonicalTables(existing);
-    const applied = db
+    const foundation = db
       .prepare("SELECT version FROM schema_migrations WHERE version = ?")
-      .get("001_v1_foundation");
-    if (!applied) {
+      .get(MIGRATIONS[0][0]);
+    if (!foundation) {
       throw new Error("Database has an incomplete Partner-Mem V1 schema");
     }
-    return;
+  } else {
+    applyMigration(db, MIGRATIONS[0][1]);
+    assertOnlyCanonicalTables(listApplicationTables(db));
   }
 
-  db.exec(readFileSync(FOUNDATION_MIGRATION_PATH, "utf8"));
-  assertOnlyCanonicalTables(listApplicationTables(db));
+  for (const [version, filename] of MIGRATIONS.slice(1)) {
+    const applied = db
+      .prepare("SELECT version FROM schema_migrations WHERE version = ?")
+      .get(version);
+    if (!applied) applyMigration(db, filename);
+  }
+}
+
+function applyMigration(db: PartnerMemDatabase, filename: string): void {
+  db.exec("BEGIN IMMEDIATE");
+  try {
+    db.exec(readFileSync(join(MIGRATION_DIRECTORY, filename), "utf8"));
+    db.exec("COMMIT");
+  } catch (error) {
+    db.exec("ROLLBACK");
+    throw error;
+  }
 }
 
 export function listApplicationTables(db: PartnerMemDatabase): string[] {
