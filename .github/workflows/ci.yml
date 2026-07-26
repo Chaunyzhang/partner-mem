@@ -32,8 +32,5 @@ jobs:
       - name: Test core
         run: corepack pnpm test
 
-      - name: Typecheck OpenClaw plugin
-        run: corepack pnpm --dir openclaw-plugin typecheck
-
-      - name: Test OpenClaw plugin
-        run: corepack pnpm --dir openclaw-plugin test
+      - name: Build core
+        run: corepack pnpm build

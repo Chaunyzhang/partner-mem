@@ -1,5 +1,8 @@
 packages:
-  - "openclaw-plugin"
+  - .
 
 allowBuilds:
   '@photostructure/sqlite': true
+
+minimumReleaseAgeExclude:
+  - '@photostructure/sqlite@2.2.0'
