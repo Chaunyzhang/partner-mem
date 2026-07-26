@@ -17,6 +17,7 @@
   },
   "devDependencies": {
     "@types/node": "^24.10.1",
+    "node-gyp-build": "4.8.4",
     "typescript": "^5.9.3",
     "vitest": "^4.0.15"
   },

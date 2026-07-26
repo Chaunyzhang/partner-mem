@@ -15,6 +15,9 @@ importers:
       '@types/node':
         specifier: ^24.10.1
         version: 24.13.0
+      node-gyp-build:
+        specifier: 4.8.4
+        version: 4.8.4
       typescript:
         specifier: ^5.9.3
         version: 5.9.3
@@ -323,6 +326,7 @@ packages:
 
   node-gyp-build@4.8.4:
     resolution: {integrity: sha512-LA4ZjwlnUblHVgq0oBF3Jl/6h/Nvs5fzBLwdEF4nuxnFdsfajde4WfxtJr3CaiH+F6ewcIB/q4jQ4UzPyid+CQ==}
+    hasBin: true
 
   obug@2.1.2:
     resolution: {integrity: sha512-AWGB9WFcRXOQs48Z/udjI5ZcZMHXwX8XPByNpOydgcGsDLIzjGizhoMWJyKAWze7AVW/2W1i+/gPX4YtKe5cyg==}
