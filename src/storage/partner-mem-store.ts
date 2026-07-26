@@ -33,6 +33,21 @@ export interface InsertTurnNodeInput {
   created_at?: string;
 }
 
+export interface AttachAnswerInput {
+  node_id: string;
+  harness_id: string;
+  conversation_id: string;
+  thread_id?: string | null;
+  answer_text?: string | null;
+  answer_role?: string | null;
+  answer_message_id?: string | null;
+  answer_author_id?: string | null;
+  answer_agent_id?: string | null;
+  answer_visible_at?: string | null;
+  answer_display_order?: number | null;
+  updated_at?: string;
+}
+
 export class PartnerMemStore {
   private transactionDepth = 0;
   private savepointSequence = 0;
@@ -232,6 +247,133 @@ export class PartnerMemStore {
       .get(requireNonEmptyString(nodeId, "node_id")) as TurnNode | undefined;
   }
 
+  findTurnNodeByMessageId(input: {
+    harness_id: string;
+    message_id: string;
+  }): TurnNode | undefined {
+    const messageId = requireNonEmptyString(input.message_id, "message_id");
+    return this.db
+      .prepare(
+        `SELECT * FROM turn_nodes
+         WHERE harness_id = ?
+           AND (question_message_id = ? OR answer_message_id = ?)`
+      )
+      .get(
+        requireNonEmptyString(input.harness_id, "harness_id"),
+        messageId,
+        messageId
+      ) as TurnNode | undefined;
+  }
+
+  attachAnswer(input: AttachAnswerInput): TurnNode {
+    const node = this.getTurnNode(input.node_id);
+    if (!node) throw new Error(`Unknown node_id: ${input.node_id}`);
+    const harness = this.requireHarness(input.harness_id);
+    if (node.harness_id !== harness.harness_id) {
+      throw new Error("node_id does not belong to this harness");
+    }
+    const conversationId = this.requireFormalObject(
+      harness.harness_id,
+      "conversation",
+      input.conversation_id,
+      "conversation_id"
+    );
+    if (node.conversation_id !== conversationId) {
+      throw new Error("node_id does not belong to this conversation");
+    }
+    const threadId = this.optionalFormalObject(
+      harness.harness_id,
+      "thread",
+      input.thread_id,
+      "thread_id"
+    );
+    if (node.thread_id !== null && threadId !== null && node.thread_id !== threadId) {
+      throw new Error("answer thread_id conflicts with the stored turn");
+    }
+    if (
+      node.answer_text !== null ||
+      node.answer_role !== null ||
+      node.answer_message_id !== null ||
+      node.answer_author_id !== null ||
+      node.answer_agent_id !== null ||
+      node.answer_visible_at !== null ||
+      node.answer_display_order !== null
+    ) {
+      throw new Error("turn node already has answer-side fields");
+    }
+
+    const answerText = optionalNonEmptyString(input.answer_text, "answer_text");
+    const answerRole = optionalNonEmptyString(input.answer_role, "answer_role");
+    const answerMessageId = this.optionalFormalObject(
+      harness.harness_id,
+      "message",
+      input.answer_message_id,
+      "answer_message_id"
+    );
+    const answerAuthorId = this.optionalFormalObject(
+      harness.harness_id,
+      "author",
+      input.answer_author_id,
+      "answer_author_id"
+    );
+    const answerAgentId = this.optionalFormalObject(
+      harness.harness_id,
+      "agent",
+      input.answer_agent_id,
+      "answer_agent_id"
+    );
+    const answerVisibleAt = optionalNonEmptyString(
+      input.answer_visible_at,
+      "answer_visible_at"
+    );
+    const answerDisplayOrder = requireNonNegativeInteger(
+      input.answer_display_order,
+      "answer_display_order"
+    );
+    if (
+      answerText === null &&
+      answerRole === null &&
+      answerMessageId === null &&
+      answerAuthorId === null &&
+      answerAgentId === null &&
+      answerVisibleAt === null &&
+      answerDisplayOrder === null
+    ) {
+      throw new Error("answer-side write requires text or host structure fields");
+    }
+
+    this.db
+      .prepare(
+        `UPDATE turn_nodes
+         SET thread_id = COALESCE(thread_id, ?),
+             answer_text = ?,
+             answer_role = ?,
+             answer_message_id = ?,
+             answer_author_id = ?,
+             answer_agent_id = ?,
+             answer_visible_at = ?,
+             answer_display_order = ?,
+             updated_at = ?
+         WHERE node_id = ?`
+      )
+      .run(
+        threadId,
+        answerText,
+        answerRole,
+        answerMessageId,
+        answerAuthorId,
+        answerAgentId,
+        answerVisibleAt,
+        answerDisplayOrder,
+        input.updated_at ?? new Date().toISOString(),
+        node.node_id
+      );
+
+    const updated = this.getTurnNode(node.node_id);
+    if (!updated) throw new Error("Partner-Mem failed to attach the answer");
+    return updated;
+  }
+
   grantAgentConversationAccess(input: {
     harness_id: string;
     agent_id: string;
@@ -260,19 +402,20 @@ export class PartnerMemStore {
     edge_id?: string;
     created_at?: string;
   }): ExplicitReplyEdge {
+    const harnessId = this.requireHarness(input.harness_id).harness_id;
     const edge: ExplicitReplyEdge = {
       edge_id: input.edge_id ?? randomUUID(),
-      harness_id: this.requireHarness(input.harness_id).harness_id,
+      harness_id: harnessId,
       from_node_id: requireNonEmptyString(input.from_node_id, "from_node_id"),
       from_message_id: this.requireFormalObject(
-        input.harness_id,
+        harnessId,
         "message",
         input.from_message_id,
         "from_message_id"
       ),
       to_node_id: requireNonEmptyString(input.to_node_id, "to_node_id"),
       to_message_id: this.requireFormalObject(
-        input.harness_id,
+        harnessId,
         "message",
         input.to_message_id,
         "to_message_id"
@@ -296,6 +439,25 @@ export class PartnerMemStore {
         edge.created_at
       );
     return edge;
+  }
+
+  findExplicitReplyEdge(input: {
+    harness_id: string;
+    from_message_id: string;
+    to_message_id: string;
+  }): ExplicitReplyEdge | undefined {
+    return this.db
+      .prepare(
+        `SELECT * FROM explicit_reply_edges
+         WHERE harness_id = ?
+           AND from_message_id = ?
+           AND to_message_id = ?`
+      )
+      .get(
+        requireNonEmptyString(input.harness_id, "harness_id"),
+        requireNonEmptyString(input.from_message_id, "from_message_id"),
+        requireNonEmptyString(input.to_message_id, "to_message_id")
+      ) as ExplicitReplyEdge | undefined;
   }
 
   private requireHarness(harnessId: string): HarnessInstance {
