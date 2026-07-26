@@ -1,0 +1,26 @@
+{
+  "id": "partner-mem",
+  "name": "Partner-Mem",
+  "description": "Stores final visible OpenClaw conversation turns in Partner-Mem and exposes the three canonical retrieval tools.",
+  "version": "1.0.0",
+  "activation": {
+    "onStartup": true
+  },
+  "configSchema": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "statePath": { "type": "string", "minLength": 1 },
+      "databasePath": { "type": "string", "minLength": 1 },
+      "runtimePath": { "type": "string", "minLength": 1 },
+      "nodePath": { "type": "string", "minLength": 1 }
+    }
+  },
+  "contracts": {
+    "tools": [
+      "partner_mem_keyword_search",
+      "partner_mem_vector_search",
+      "partner_mem_graph_traverse"
+    ]
+  }
+}

@@ -1,0 +1,15 @@
+{
+  "name": "@partner-mem/hermes-runtime",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "bin": {
+    "partner-mem-runtime": "dist/runtime/cli.js"
+  },
+  "engines": {
+    "node": ">=22.22.3 <23 || >=24.15.0 <25 || >=25.9.0"
+  },
+  "dependencies": {
+    "@photostructure/sqlite": "2.2.0"
+  }
+}

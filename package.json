@@ -1,10 +1,10 @@
 {
   "name": "partner-mem",
-  "version": "0.4.0",
+  "version": "1.0.0",
   "private": true,
   "type": "module",
   "engines": {
-    "node": ">=22.22.3"
+    "node": ">=22.22.3 <23 || >=24.15.0 <25 || >=25.9.0"
   },
   "bin": {
     "partner-mem-runtime": "dist/runtime/cli.js"
@@ -15,7 +15,14 @@
     "test:foundation": "vitest run test/core test/storage",
     "test:ingest": "vitest run test/ingest test/runtime",
     "test:retrieval": "vitest run test/retrieval test/tools test/embedding",
-    "typecheck": "tsc --noEmit"
+    "test:adapters": "vitest run test/adapters",
+    "test:hermes": "python3 -m unittest discover -s integrations/hermes/tests -v",
+    "typecheck": "tsc --noEmit",
+    "typecheck:openclaw": "tsc --noEmit -p openclaw-plugin/tsconfig.json",
+    "build:openclaw": "pnpm --filter @partner-mem/openclaw-plugin build",
+    "build:hermes": "python3 integrations/hermes/build_artifact.py",
+    "smoke:openclaw": "node scripts/smoke-openclaw-package.mjs",
+    "smoke:hermes": "python3 integrations/hermes/smoke_artifact.py"
   },
   "dependencies": {
     "@photostructure/sqlite": "^2.2.0"

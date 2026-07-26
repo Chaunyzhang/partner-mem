@@ -5,7 +5,7 @@ import type { PartnerMemRuntime } from "./partner-mem-runtime.js";
 export async function serveJsonLines(
   input: Readable,
   output: Writable,
-  runtime: PartnerMemRuntime
+  runtime: Pick<PartnerMemRuntime, "handle">
 ): Promise<void> {
   const lines = createInterface({ input, crlfDelay: Number.POSITIVE_INFINITY });
   for await (const line of lines) {
@@ -23,6 +23,6 @@ export async function serveJsonLines(
       );
       continue;
     }
-    output.write(`${JSON.stringify(runtime.handle(request))}\n`);
+    output.write(`${JSON.stringify(await runtime.handle(request))}\n`);
   }
 }

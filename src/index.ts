@@ -3,6 +3,7 @@ export * from "./embedding/embedding-provider.js";
 export * from "./embedding/openai-compatible-provider.js";
 export * from "./ingest/turn-ingest-service.js";
 export * from "./retrieval/retrieval-contracts.js";
+export * from "./runtime/embedding-configuration.js";
 export * from "./runtime/jsonl-server.js";
 export * from "./runtime/partner-mem-runtime.js";
 export * from "./runtime/runtime-contracts.js";

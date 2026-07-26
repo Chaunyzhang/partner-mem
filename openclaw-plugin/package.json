@@ -1,0 +1,46 @@
+{
+  "name": "@partner-mem/openclaw-plugin",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=22.22.3 <23 || >=24.15.0 <25 || >=25.9.0"
+  },
+  "main": "dist/index.js",
+  "exports": {
+    ".": "./dist/index.js"
+  },
+  "openclaw": {
+    "extensions": ["./dist/index.js"],
+    "compat": {
+      "pluginApi": ">=2026.7.1-2",
+      "minGatewayVersion": "2026.7.1-2"
+    },
+    "build": {
+      "openclawVersion": "2026.7.1-2",
+      "pluginSdkVersion": "2026.7.1-2"
+    }
+  },
+  "files": [
+    "dist/",
+    "openclaw.plugin.json",
+    "README.md"
+  ],
+  "scripts": {
+    "build": "node -e \"require('node:fs').rmSync('dist',{recursive:true,force:true})\" && tsc -p tsconfig.json && node ../scripts/copy-runtime-closure.mjs --output openclaw-plugin/dist/partner-mem-runtime",
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "pack:smoke": "npm pack --dry-run"
+  },
+  "dependencies": {
+    "@photostructure/sqlite": "^2.2.0",
+    "typebox": "^1.3.8"
+  },
+  "peerDependencies": {
+    "openclaw": "2026.7.1-2"
+  },
+  "devDependencies": {
+    "@types/node": "^24.10.1",
+    "openclaw": "2026.7.1-2",
+    "typescript": "^5.9.3"
+  }
+}

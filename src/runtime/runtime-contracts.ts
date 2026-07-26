@@ -8,12 +8,17 @@ import type {
   RecordQuestionInput,
   RecordReplyInput
 } from "../ingest/turn-ingest-service.js";
+import {
+  MODEL_VISIBLE_TOOL_NAMES,
+  type ModelVisibleToolName
+} from "../tools/tool-contracts.js";
 
 export type RuntimeCommand =
   | "register_harness"
   | "record_question"
   | "record_answer"
   | "record_reply"
+  | "invoke_tool"
   | "get_node";
 
 export interface RuntimeRequest {
@@ -196,12 +201,55 @@ export function parseGetNodeParams(params: Record<string, unknown>): {
   };
 }
 
+export interface InvokeToolParams {
+  harness_id: string;
+  source_conversation_id: string;
+  source_agent_id?: string | undefined;
+  tool_name: ModelVisibleToolName;
+  arguments: Record<string, unknown>;
+}
+
+export function parseInvokeToolParams(
+  params: Record<string, unknown>
+): InvokeToolParams {
+  assertOnlyKeys(
+    params,
+    [
+      "harness_id",
+      "source_conversation_id",
+      "source_agent_id",
+      "tool_name",
+      "arguments"
+    ],
+    "invoke_tool params"
+  );
+  const toolName = requireNonEmptyString(params.tool_name, "tool_name");
+  if (!MODEL_VISIBLE_TOOL_NAMES.includes(toolName as ModelVisibleToolName)) {
+    throw new RuntimeInputError(`Unknown model-visible tool: ${toolName}`);
+  }
+  const sourceAgentId = optionalNonEmptyString(
+    params.source_agent_id,
+    "source_agent_id"
+  );
+  return {
+    harness_id: requireNonEmptyString(params.harness_id, "harness_id"),
+    source_conversation_id: requireNonEmptyString(
+      params.source_conversation_id,
+      "source_conversation_id"
+    ),
+    ...(sourceAgentId === null ? {} : { source_agent_id: sourceAgentId }),
+    tool_name: toolName as ModelVisibleToolName,
+    arguments: requireObject(params.arguments, "arguments")
+  };
+}
+
 function isRuntimeCommand(value: string): value is RuntimeCommand {
   return [
     "register_harness",
     "record_question",
     "record_answer",
     "record_reply",
+    "invoke_tool",
     "get_node"
   ].includes(value);
 }
