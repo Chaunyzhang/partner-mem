@@ -2,9 +2,12 @@ import type { PartnerMemDatabase } from "../storage/schema.js";
 import { openPartnerMemDatabase } from "../storage/schema.js";
 import { PartnerMemStore } from "../storage/partner-mem-store.js";
 import { TurnIngestService } from "../ingest/turn-ingest-service.js";
+import type { EmbeddingProvider } from "../embedding/embedding-provider.js";
+import { RetrievalFacade } from "../tools/retrieval-facade.js";
 import {
   RuntimeInputError,
   parseGetNodeParams,
+  parseInvokeToolParams,
   parseRecordAnswerParams,
   parseRecordQuestionParams,
   parseRecordReplyParams,
@@ -16,20 +19,30 @@ import {
 export class PartnerMemRuntime {
   private readonly store: PartnerMemStore;
   private readonly ingest: TurnIngestService;
+  private readonly retrieval: RetrievalFacade;
 
   constructor(
     private readonly db: PartnerMemDatabase,
-    clock?: () => string
+    clock?: () => string,
+    embeddingProvider: EmbeddingProvider | null = null
   ) {
     this.store = new PartnerMemStore(db);
     this.ingest = new TurnIngestService(this.store, clock);
+    this.retrieval = new RetrievalFacade(this.store, embeddingProvider, clock);
   }
 
-  static open(databasePath: string): PartnerMemRuntime {
-    return new PartnerMemRuntime(openPartnerMemDatabase(databasePath));
+  static open(
+    databasePath: string,
+    embeddingProvider: EmbeddingProvider | null = null
+  ): PartnerMemRuntime {
+    return new PartnerMemRuntime(
+      openPartnerMemDatabase(databasePath),
+      undefined,
+      embeddingProvider
+    );
   }
 
-  handle(value: unknown): RuntimeResponse {
+  async handle(value: unknown): Promise<RuntimeResponse> {
     let id =
       typeof value === "object" &&
       value !== null &&
@@ -81,6 +94,42 @@ export class PartnerMemRuntime {
             ok: true,
             result: { edge_id: edge.edge_id }
           };
+        }
+        case "invoke_tool": {
+          const params = parseInvokeToolParams(request.params);
+          const identity = this.store.transaction(() => {
+            const conversation = this.store.resolveSourceObject({
+              harness_id: params.harness_id,
+              object_kind: "conversation",
+              source_object_id: params.source_conversation_id
+            });
+            const agent =
+              params.source_agent_id === undefined
+                ? undefined
+                : this.store.resolveSourceObject({
+                    harness_id: params.harness_id,
+                    object_kind: "agent",
+                    source_object_id: params.source_agent_id
+                  });
+            if (agent !== undefined) {
+              this.store.grantAgentConversationAccess({
+                harness_id: params.harness_id,
+                agent_id: agent.formal_id,
+                conversation_id: conversation.formal_id
+              });
+            }
+            return {
+              harness_id: params.harness_id,
+              conversation_id: conversation.formal_id,
+              agent_id: agent?.formal_id
+            };
+          });
+          const result = await this.retrieval.invoke(
+            params.tool_name,
+            params.arguments,
+            identity
+          );
+          return { id, ok: true, result };
         }
         case "get_node": {
           const params = parseGetNodeParams(request.params);

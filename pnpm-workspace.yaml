@@ -1,8 +1,13 @@
 packages:
   - .
+  - openclaw-plugin
 
 allowBuilds:
+  '@google/genai': false
   '@photostructure/sqlite': true
+  openclaw: false
+  protobufjs: false
+  tree-sitter-bash: false
 
 minimumReleaseAgeExclude:
   - '@photostructure/sqlite@2.2.0'

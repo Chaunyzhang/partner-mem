@@ -47,4 +47,41 @@ describe("JSONL runtime transport", () => {
     });
     expect(responses[1]).toMatchObject({ id: "next", ok: true });
   });
+
+  it("awaits asynchronous commands in input order", async () => {
+    const output = new PassThrough();
+    let text = "";
+    output.setEncoding("utf8");
+    output.on("data", (chunk: string) => {
+      text += chunk;
+    });
+    const handled: string[] = [];
+    const runtime = {
+      async handle(value: unknown) {
+        const id = (value as { id: string }).id;
+        if (id === "first") {
+          await new Promise((resolve) => setTimeout(resolve, 20));
+        }
+        handled.push(id);
+        return { id, ok: true as const, result: {} };
+      }
+    };
+
+    await serveJsonLines(
+      Readable.from([
+        `${JSON.stringify({ id: "first", command: "register_harness", params: {} })}\n`,
+        `${JSON.stringify({ id: "second", command: "register_harness", params: {} })}\n`
+      ]),
+      output,
+      runtime
+    );
+
+    expect(handled).toEqual(["first", "second"]);
+    expect(
+      text
+        .trim()
+        .split("\n")
+        .map((line) => JSON.parse(line).id)
+    ).toEqual(["first", "second"]);
+  });
 });

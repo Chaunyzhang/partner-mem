@@ -8,7 +8,7 @@ on:
 
 jobs:
   test:
-    name: Typecheck and test
+    name: V1 core, adapters, and packages
     runs-on: ubuntu-latest
 
     steps:
@@ -18,7 +18,12 @@ jobs:
       - name: Setup Node
         uses: actions/setup-node@v6
         with:
-          node-version: "22"
+          node-version: "22.22.3"
+
+      - name: Setup Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
 
       - name: Enable Corepack
         run: corepack enable
@@ -27,10 +32,28 @@ jobs:
         run: corepack pnpm install --frozen-lockfile
 
       - name: Typecheck core
-        run: corepack pnpm typecheck
+        run: corepack pnpm --filter partner-mem typecheck
 
-      - name: Test core
-        run: corepack pnpm test
+      - name: Typecheck OpenClaw plugin
+        run: corepack pnpm --filter @partner-mem/openclaw-plugin typecheck
 
-      - name: Build core
-        run: corepack pnpm build
+      - name: Test TypeScript core and adapter contracts
+        run: corepack pnpm --filter partner-mem test
+
+      - name: Test Hermes provider
+        run: corepack pnpm --filter partner-mem test:hermes
+
+      - name: Build core runtime
+        run: corepack pnpm --filter partner-mem build
+
+      - name: Build OpenClaw package
+        run: corepack pnpm --filter @partner-mem/openclaw-plugin build
+
+      - name: Smoke OpenClaw npm-pack install
+        run: corepack pnpm --filter partner-mem smoke:openclaw
+
+      - name: Build Hermes artifact
+        run: corepack pnpm --filter partner-mem build:hermes
+
+      - name: Smoke Hermes artifact install
+        run: corepack pnpm --filter partner-mem smoke:hermes

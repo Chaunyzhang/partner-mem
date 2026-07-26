@@ -55,7 +55,7 @@
 
 ## 4. 技术选型
 
-- Node.js `>=22.22.3`（中文翻译：内核运行环境）：与当前 CI 和 2026 OpenClaw 插件要求一致。
+- Node.js `>=22.22.3 <23 || >=24.15.0 <25 || >=25.9.0`（中文翻译：内核运行环境）：与 OpenClaw `2026.7.1-2` 的官方 engine contract 完全一致。
 - TypeScript `5.9.x`（中文翻译：严格类型语言）：负责共享契约、内核、runtime 和 OpenClaw 插件。
 - `@photostructure/sqlite` `2.2.x`（中文翻译：Node 的同步 SQLite 驱动）：唯一持久化进程内 owner。
 - SQLite STRICT tables（中文翻译：数据库拒绝错误字段类型的严格表）与 foreign keys（外键：保证正式 ID 关系真实存在）。
@@ -137,6 +137,40 @@ answer-only / question+answer
 4. PR #11：实现 Hermes/OpenClaw 适配、打包与端到端门禁。
 
 每个 PR 必须先合并到 `main`，下一 PR 才从新的 `origin/main` 创建；不做 stacked PR。
+
+### 8.1 PR #11 adapter 边界
+
+`invoke_tool`（中文翻译：adapter 把一个已注册公开 Tool 调用交给内核的内部
+JSONL 命令）只接受 adapter 持久化的 `harness_id`、宿主可信
+`source_conversation_id`、可选 `source_agent_id`、三个 canonical
+`tool_name` 之一和模型业务 `arguments`。正式 conversation/agent ID、权限和
+envelope 全部由 runtime/store/facade 决定。
+
+Hermes `PartnerMemMemoryProvider`（中文翻译：Hermes 最终 turn 生命周期到
+JSONL 的薄翻译层）使用 daemon single-worker queue；`sync_turn()` 立即返回，
+问题写成功后才用精确 `node_id` 写回答。state 与 database 默认同置于当前
+Hermes home；重启复用同一 `harness_id`。
+
+OpenClaw plugin（中文翻译：OpenClaw 最终消息生命周期与 Tool 的薄翻译层）
+使用当前 typed `api.on(...)` hooks。`message_received` 保存入站最终可见原文；
+operator 必须启用
+`plugins.entries.partner-mem.hooks.allowConversationAccess`（中文翻译：允许该
+非 bundled plugin 注册受保护 conversation hook 的 OpenClaw 部署权限）；
+只读 `before_agent_run` 用精确 `sessionKey + runId` 标记 `cron`/`heartbeat`
+主动 run，不写数据；其他 trigger 或缺少精确字段都不能证明 answer-only。
+`reply_payload_sending` 只证明出站 payload 是否存在可见文字并排除 audio-only
+hidden transcript、reasoning/commentary/status，并在存在时携带官方
+`usageState.agentId`；成功 `message_sent` 才安排回答写入并把该 Agent 来源同时
+作为回答身份和 conversation access。`sessionKey` 或配对证据缺失/歧义时跳过，
+不按时间、正文或数组位置猜测。
+宿主提供的 inbound `replyToId + messageId` 经唯一 `record_reply` core command
+保存为显式关系。
+
+两个 adapter 都只持有稳定 state、临时 turn correlation 和有界单子进程运输；
+它们不导入 SQLite driver、store、ingest/retrieval service，不自动 retry、
+replay 或 restart。OpenClaw npm tarball 与 Hermes user-plugin artifact 都内含
+runtime closure、migrations 和 canonical Tool schema，并经过仓库外安装、官方
+host discovery/load 与真实 runtime start smoke。
 
 ## 9. 验证与停止条件
 
