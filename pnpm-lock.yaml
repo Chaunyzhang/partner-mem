@@ -9,24 +9,8 @@ importers:
   .:
     dependencies:
       '@photostructure/sqlite':
-        specifier: ^1.2.1
-        version: 1.2.1
-    devDependencies:
-      '@types/node':
-        specifier: ^24.10.1
-        version: 24.13.0
-      typescript:
-        specifier: ^5.9.3
-        version: 5.9.3
-      vitest:
-        specifier: ^4.0.15
-        version: 4.1.8(@types/node@24.13.0)(vite@8.0.16(@types/node@24.13.0))
-
-  openclaw-plugin:
-    dependencies:
-      '@photostructure/sqlite':
-        specifier: ^1.2.1
-        version: 1.2.1
+        specifier: ^2.2.0
+        version: 2.2.0
     devDependencies:
       '@types/node':
         specifier: ^24.10.1
@@ -61,9 +45,9 @@ packages:
   '@oxc-project/types@0.133.0':
     resolution: {integrity: sha512-KzkdCd6Uxqnf6l3HOw1xfatAlUURA0g14cvBYFyJ5SaNOQbOUvBr9PKArcPcrNIeRsBdgcUzOGrhKveVpvOIGA==}
 
-  '@photostructure/sqlite@1.2.1':
-    resolution: {integrity: sha512-DfWwnfp9t4kCorSWsL0/d9pNvAC6n7kYWs239r325WeRllRg9FlTtVgdzz/P8HG1RM5VwCwn6FPp1a42q2gAMQ==}
-    engines: {node: '>=20.0.0'}
+  '@photostructure/sqlite@2.2.0':
+    resolution: {integrity: sha512-Emv7SpngvzltsGubRS/soq92CeDfoNBRZ3Ron1HfQCijymxoZlmi5ogaJE/vmpQ6xtr76twCEGpJJLH5OdKBIw==}
+    engines: {node: '>=22'}
     cpu: [x64, arm64]
     os: [darwin, linux, win32]
 
@@ -333,13 +317,12 @@ packages:
     engines: {node: ^10 || ^12 || ^13.7 || ^14 || >=15.0.1}
     hasBin: true
 
-  node-addon-api@8.8.0:
-    resolution: {integrity: sha512-c5Ko1fZJIJmzhFIkhRN76WTq+fC6tWnGy9CXA0fA+XygsWZmEwG8vmbkNqxMyoaa0Tin4djul49NzdVcJJcjeA==}
+  node-addon-api@8.9.0:
+    resolution: {integrity: sha512-ekZMeaaIzSQTSpr7X2X3iJM7lTzgnx8ahAG9pJfT/7+14mlEM8ZYQ9cgCDvSSRbReFK0oHli3WrZdCiRsgAT9Q==}
     engines: {node: ^18 || ^20 || >= 21}
 
   node-gyp-build@4.8.4:
     resolution: {integrity: sha512-LA4ZjwlnUblHVgq0oBF3Jl/6h/Nvs5fzBLwdEF4nuxnFdsfajde4WfxtJr3CaiH+F6ewcIB/q4jQ4UzPyid+CQ==}
-    hasBin: true
 
   obug@2.1.2:
     resolution: {integrity: sha512-AWGB9WFcRXOQs48Z/udjI5ZcZMHXwX8XPByNpOydgcGsDLIzjGizhoMWJyKAWze7AVW/2W1i+/gPX4YtKe5cyg==}
@@ -398,7 +381,6 @@ packages:
   typescript@5.9.3:
     resolution: {integrity: sha512-jl1vZzPDinLr9eUt3J/t7V6FgNEw9QjvBPdysz9KfQDD41fQrC2Y4vKQdiaUpFT4bXlb1RHhLpp8wtm6M5TgSw==}
     engines: {node: '>=14.17'}
-    hasBin: true
 
   undici-types@7.18.2:
     resolution: {integrity: sha512-AsuCzffGHJybSaRrmr5eHr81mwJU3kjw6M+uprWvCXiNeN9SOGwQ3Jn8jb8m3Z6izVgknn1R0FTCEAP2QrLY/w==}
@@ -449,7 +431,6 @@ packages:
   vitest@4.1.8:
     resolution: {integrity: sha512-flY6ScbCIt9HThs+C5HS7jvGOB560DJtk/Z15IQROTA6zEy49Nh8T/dofWTQL+n3vswqn87sbJNiuqw1SDp5Ig==}
     engines: {node: ^20.0.0 || ^22.0.0 || >=24.0.0}
-    hasBin: true
     peerDependencies:
       '@edge-runtime/vm': '*'
       '@opentelemetry/api': ^1.9.0
@@ -490,7 +471,6 @@ packages:
   why-is-node-running@2.3.0:
     resolution: {integrity: sha512-hUrmaWBdVDcxvYqnyh09zunKzROWjbZTiNy8dBEjkS7ehEDQibXJ7XvlmtbwuTclUiIyN+CyXQD4Vmko8fNm8w==}
     engines: {node: '>=8'}
-    hasBin: true
 
 snapshots:
 
@@ -521,9 +501,9 @@ snapshots:
 
   '@oxc-project/types@0.133.0': {}
 
-  '@photostructure/sqlite@1.2.1':
+  '@photostructure/sqlite@2.2.0':
     dependencies:
-      node-addon-api: 8.8.0
+      node-addon-api: 8.9.0
       node-gyp-build: 4.8.4
 
   '@rolldown/binding-android-arm64@1.0.3':
@@ -716,7 +696,7 @@ snapshots:
 
   nanoid@3.3.12: {}
 
-  node-addon-api@8.8.0: {}
+  node-addon-api@8.9.0: {}
 
   node-gyp-build@4.8.4: {}
 

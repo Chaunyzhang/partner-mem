@@ -1,133 +1,87 @@
-export const NODE_TYPES = [
-  "raw_message",
-  "summary",
-  "entity",
-  "task",
-  "event",
-  "decision",
-  "artifact"
+export const SOURCE_OBJECT_KINDS = [
+  "conversation",
+  "thread",
+  "message",
+  "author",
+  "agent"
 ] as const;
 
-export type NodeType = (typeof NODE_TYPES)[number];
+export type SourceObjectKind = (typeof SOURCE_OBJECT_KINDS)[number];
 
-export const EDGE_CLASSES = [
-  "evidence",
-  "semantic",
-  "temporal",
-  "navigation"
-] as const;
+export type HarnessId = string;
+export type FormalObjectId = string;
+export type NodeId = string;
 
-export type EdgeClass = (typeof EDGE_CLASSES)[number];
+export interface HarnessInstance {
+  harness_id: HarnessId;
+  harness_type: string;
+  registered_at: string;
+}
 
-export const EVIDENCE_EDGE_TYPES = [
-  "RAW_NEAR_RAW",
-  "SUMMARY_COVERS_RAW",
-  "SUMMARY_ROLLS_UP_SUMMARY",
-  "MENTIONED_IN_RAW",
-  "EVIDENCED_BY_RAW"
-] as const;
+export interface SourceObjectMapping {
+  harness_id: HarnessId;
+  object_kind: SourceObjectKind;
+  source_object_id: string;
+  formal_id: FormalObjectId;
+  created_at: string;
+}
 
-export type EvidenceEdgeType = (typeof EVIDENCE_EDGE_TYPES)[number];
+export interface TurnNode {
+  node_id: NodeId;
+  harness_id: HarnessId;
+  harness_type: string;
+  conversation_id: FormalObjectId;
+  thread_id: FormalObjectId | null;
+  question_text: string | null;
+  question_role: string | null;
+  question_message_id: FormalObjectId | null;
+  question_author_id: FormalObjectId | null;
+  question_visible_at: string | null;
+  question_display_order: number | null;
+  answer_text: string | null;
+  answer_role: string | null;
+  answer_message_id: FormalObjectId | null;
+  answer_author_id: FormalObjectId | null;
+  answer_agent_id: FormalObjectId | null;
+  answer_visible_at: string | null;
+  answer_display_order: number | null;
+  created_at: string;
+  updated_at: string;
+}
 
-export const SEMANTIC_EDGE_TYPES = [
-  "RELATED_TO",
-  "SIMILAR_TO",
-  "CAUSED_BY",
-  "USED_TOOL",
-  "SOLVED_BY",
-  "correction",
-  "extension",
-  "contradiction"
-] as const;
+export interface ExplicitReplyEdge {
+  edge_id: string;
+  harness_id: HarnessId;
+  from_node_id: NodeId;
+  from_message_id: FormalObjectId;
+  to_node_id: NodeId;
+  to_message_id: FormalObjectId;
+  created_at: string;
+}
 
-export type SemanticEdgeType = (typeof SEMANTIC_EDGE_TYPES)[number];
-
-export const REVISION_EDGE_TYPES = [
-  "correction",
-  "extension",
-  "contradiction"
-] as const;
-
-export type RevisionEdgeType = (typeof REVISION_EDGE_TYPES)[number];
-
-export const TEMPORAL_EDGE_TYPES = ["FOLLOWS"] as const;
-export type TemporalEdgeType = (typeof TEMPORAL_EDGE_TYPES)[number];
-
-export const NAVIGATION_EDGE_TYPES = ["INDEXES", "ROLLS_UP"] as const;
-export type NavigationEdgeType = (typeof NAVIGATION_EDGE_TYPES)[number];
-
-export type EdgeType =
-  | EvidenceEdgeType
-  | SemanticEdgeType
-  | TemporalEdgeType
-  | NavigationEdgeType;
-
-export const NODE_STATUSES = ["active", "invalidated"] as const;
-export type NodeStatus = (typeof NODE_STATUSES)[number];
-
-export const PATH_STATUSES = ["verified", "blocked", "candidate_only"] as const;
-export type PathStatus = (typeof PATH_STATUSES)[number];
-
-export const RESULT_CLASSES = ["candidate", "evidence", "status"] as const;
-export type ResultClass = (typeof RESULT_CLASSES)[number];
-
-export const RAW_MESSAGE_ROLES = [
-  "user",
-  "assistant",
-  "system_visible",
-  "tool_visible"
-] as const;
-
-export type RawMessageRole = (typeof RAW_MESSAGE_ROLES)[number];
-
-function assertAllowedValue<T extends readonly string[]>(
-  value: string,
-  allowed: T,
-  label: string
-): T[number] {
-  if ((allowed as readonly string[]).includes(value)) {
-    return value as T[number];
+export function assertSourceObjectKind(value: string): SourceObjectKind {
+  if ((SOURCE_OBJECT_KINDS as readonly string[]).includes(value)) {
+    return value as SourceObjectKind;
   }
-
-  throw new TypeError(`Unknown ${label}: ${value}`);
+  throw new TypeError(`Unknown source object kind: ${value}`);
 }
 
-export function assertNodeType(value: string): NodeType {
-  return assertAllowedValue(value, NODE_TYPES, "NodeType");
+export function requireNonEmptyString(value: unknown, field: string): string {
+  if (typeof value !== "string" || value.trim().length === 0) {
+    throw new TypeError(`${field} must be a non-empty string`);
+  }
+  return value;
 }
 
-export function assertEdgeClass(value: string): EdgeClass {
-  return assertAllowedValue(value, EDGE_CLASSES, "EdgeClass");
+export function optionalNonEmptyString(value: unknown, field: string): string | null {
+  if (value === undefined || value === null) return null;
+  return requireNonEmptyString(value, field);
 }
 
-export function assertEvidenceEdgeType(value: string): EvidenceEdgeType {
-  return assertAllowedValue(value, EVIDENCE_EDGE_TYPES, "EvidenceEdgeType");
-}
-
-export function isEvidenceEdgeType(value: string): value is EvidenceEdgeType {
-  return (EVIDENCE_EDGE_TYPES as readonly string[]).includes(value);
-}
-
-export function assertRevisionEdgeType(value: string): RevisionEdgeType {
-  return assertAllowedValue(value, REVISION_EDGE_TYPES, "RevisionEdgeType");
-}
-
-export function isRevisionEdgeType(value: string): value is RevisionEdgeType {
-  return (REVISION_EDGE_TYPES as readonly string[]).includes(value);
-}
-
-export function assertNodeStatus(value: string): NodeStatus {
-  return assertAllowedValue(value, NODE_STATUSES, "NodeStatus");
-}
-
-export function assertPathStatus(value: string): PathStatus {
-  return assertAllowedValue(value, PATH_STATUSES, "PathStatus");
-}
-
-export function assertResultClass(value: string): ResultClass {
-  return assertAllowedValue(value, RESULT_CLASSES, "ResultClass");
-}
-
-export function assertRawMessageRole(value: string): RawMessageRole {
-  return assertAllowedValue(value, RAW_MESSAGE_ROLES, "RawMessageRole");
+export function requireNonNegativeInteger(value: unknown, field: string): number | null {
+  if (value === undefined || value === null) return null;
+  if (!Number.isInteger(value) || (value as number) < 0) {
+    throw new TypeError(`${field} must be a non-negative integer`);
+  }
+  return value as number;
 }

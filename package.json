@@ -1,17 +1,19 @@
 {
   "name": "partner-mem",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "private": true,
   "type": "module",
+  "engines": {
+    "node": ">=22.22.3"
+  },
   "scripts": {
-    "build": "node -e \"require('node:fs').rmSync('dist',{recursive:true,force:true})\" && tsc -p tsconfig.build.json && mkdir -p dist/storage/migrations && cp src/storage/migrations/*.sql dist/storage/migrations/",
-    "build:hermes-plugin": "corepack pnpm build && node scripts/build-hermes-plugin.mjs",
+    "build": "node -e \"require('node:fs').rmSync('dist',{recursive:true,force:true})\" && tsc -p tsconfig.build.json && node scripts/copy-migrations.mjs",
     "test": "vitest run",
-    "test:hermes-package": "vitest run test/integrations/hermes-package.test.ts",
+    "test:foundation": "vitest run test/core test/storage",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "@photostructure/sqlite": "^1.2.1"
+    "@photostructure/sqlite": "^2.2.0"
   },
   "devDependencies": {
     "@types/node": "^24.10.1",

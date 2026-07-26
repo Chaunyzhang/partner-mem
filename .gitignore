@@ -1,5 +1,11 @@
 .omx/
+.DS_Store
 build/
+coverage/
 dist/
 node_modules/
 __pycache__/
+*.db
+*.db-shm
+*.db-wal
+*.sqlite
