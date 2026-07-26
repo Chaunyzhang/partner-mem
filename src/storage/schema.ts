@@ -6,10 +6,27 @@ import { DatabaseSync } from "@photostructure/sqlite";
 const MIGRATION_DIRECTORY = join(dirname(fileURLToPath(import.meta.url)), "migrations");
 const MIGRATIONS = [
   ["001_v1_foundation", "001_v1_foundation.sql"],
-  ["002_v1_immutability", "002_v1_immutability.sql"]
+  ["002_v1_immutability", "002_v1_immutability.sql"],
+  ["003_v1_retrieval_indexes", "003_v1_retrieval_indexes.sql"]
 ] as const;
 
 export const CANONICAL_TABLES = [
+  "agent_conversation_access",
+  "explicit_reply_edges",
+  "harness_instances",
+  "node_vectors",
+  "schema_migrations",
+  "source_object_mappings",
+  "turn_fts",
+  "turn_fts_config",
+  "turn_fts_content",
+  "turn_fts_data",
+  "turn_fts_docsize",
+  "turn_fts_idx",
+  "turn_nodes"
+] as const;
+
+const FOUNDATION_TABLES = [
   "agent_conversation_access",
   "explicit_reply_edges",
   "harness_instances",
@@ -37,7 +54,7 @@ export function openPartnerMemDatabase(path: string): PartnerMemDatabase {
 export function initializeSchema(db: PartnerMemDatabase): void {
   const existing = listApplicationTables(db);
   if (existing.length > 0) {
-    assertOnlyCanonicalTables(existing);
+    assertCanonicalMigrationBase(existing);
     const foundation = db
       .prepare("SELECT version FROM schema_migrations WHERE version = ?")
       .get(MIGRATIONS[0][0]);
@@ -46,7 +63,6 @@ export function initializeSchema(db: PartnerMemDatabase): void {
     }
   } else {
     applyMigration(db, MIGRATIONS[0][1]);
-    assertOnlyCanonicalTables(listApplicationTables(db));
   }
 
   for (const [version, filename] of MIGRATIONS.slice(1)) {
@@ -55,6 +71,7 @@ export function initializeSchema(db: PartnerMemDatabase): void {
       .get(version);
     if (!applied) applyMigration(db, filename);
   }
+  assertOnlyCanonicalTables(listApplicationTables(db));
 }
 
 function applyMigration(db: PartnerMemDatabase, filename: string): void {
@@ -89,6 +106,19 @@ function assertOnlyCanonicalTables(tables: string[]): void {
   if (unexpected.length > 0 || missing.length > 0) {
     throw new Error(
       `Database is not the canonical Partner-Mem V1 schema; unexpected=${unexpected.join(",") || "none"}; missing=${missing.join(",") || "none"}`
+    );
+  }
+}
+
+function assertCanonicalMigrationBase(tables: string[]): void {
+  const allowed = new Set<string>(CANONICAL_TABLES);
+  const unexpected = tables.filter((table) => !allowed.has(table));
+  const missingFoundation = FOUNDATION_TABLES.filter(
+    (table) => !tables.includes(table)
+  );
+  if (unexpected.length > 0 || missingFoundation.length > 0) {
+    throw new Error(
+      `Database is not the canonical Partner-Mem V1 schema; unexpected=${unexpected.join(",") || "none"}; missing=${missingFoundation.join(",") || "none"}`
     );
   }
 }

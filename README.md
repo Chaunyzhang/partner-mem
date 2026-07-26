@@ -13,8 +13,9 @@ The implementation is delivered through four sequential PR stages:
 
 1. canonical contracts, identity mapping, and SQLite durable truth — merged;
 2. final-visible write lifecycle, exact turn pairing, explicit reply relations,
-   and an internal JSONL runtime;
-3. keyword, vector, graph retrieval, and the three model-visible tools;
+   and an internal JSONL runtime — merged;
+3. keyword, vector, graph retrieval, and the three model-visible tools — current
+   stage;
 4. Hermes and OpenClaw adapters plus end-to-end packaging.
 
 Every merged stage remains recoverable through GitHub history. The previous
