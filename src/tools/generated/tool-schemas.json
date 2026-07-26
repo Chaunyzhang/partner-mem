@@ -1,0 +1,76 @@
+[
+  {
+    "name": "partner_mem_keyword_search",
+    "description": "Search complete Partner-Mem turns with the keyword/BM25 index and return full original question and answer text.",
+    "inputSchema": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["query"],
+      "properties": {
+        "query": { "type": "string", "minLength": 1 },
+        "scope": {
+          "type": "string",
+          "enum": ["current_conversation", "agent_conversations"],
+          "default": "current_conversation"
+        },
+        "limit": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 20,
+          "default": 10
+        }
+      }
+    }
+  },
+  {
+    "name": "partner_mem_vector_search",
+    "description": "Search complete Partner-Mem turns by semantic vector similarity and return full original question and answer text.",
+    "inputSchema": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["query"],
+      "properties": {
+        "query": { "type": "string", "minLength": 1 },
+        "scope": {
+          "type": "string",
+          "enum": ["current_conversation", "agent_conversations"],
+          "default": "current_conversation"
+        },
+        "limit": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 20,
+          "default": 10
+        }
+      }
+    }
+  },
+  {
+    "name": "partner_mem_graph_traverse",
+    "description": "Traverse only persisted explicit reply relations from one known Partner-Mem turn and return full original turn text plus the actual path.",
+    "inputSchema": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["start_node_id", "direction"],
+      "properties": {
+        "start_node_id": { "type": "string", "minLength": 1 },
+        "direction": {
+          "type": "string",
+          "enum": ["parent", "replies", "both"]
+        },
+        "max_depth": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 3,
+          "default": 1
+        },
+        "limit": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 20,
+          "default": 10
+        }
+      }
+    }
+  }
+]

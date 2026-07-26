@@ -25,8 +25,50 @@ describe("V1 schema", () => {
       fixture.db.prepare("SELECT version FROM schema_migrations ORDER BY version").all()
     ).toEqual([
       { version: "001_v1_foundation" },
-      { version: "002_v1_immutability" }
+      { version: "002_v1_immutability" },
+      { version: "003_v1_retrieval_indexes" }
     ]);
+  });
+
+  it("upgrades the PR #9 schema and backfills the rebuildable FTS index", () => {
+    const fixture = createTestDatabase();
+    const store = new PartnerMemStore(fixture.db);
+    const harness = store.registerHarness("retrieval-migration-test");
+    const conversation = store.resolveSourceObject({
+      harness_id: harness.harness_id,
+      object_kind: "conversation",
+      source_object_id: "migration-conversation"
+    });
+    const node = store.insertTurnNode({
+      harness_id: harness.harness_id,
+      conversation_id: conversation.formal_id,
+      question_text: "迁移前已经存在的完整原文"
+    });
+    fixture.db.exec("DROP TRIGGER turn_nodes_fts_insert");
+    fixture.db.exec("DROP TRIGGER turn_nodes_fts_answer_update");
+    fixture.db.exec("DROP TRIGGER turn_nodes_vector_invalidate");
+    fixture.db.exec("DROP TABLE node_vectors");
+    fixture.db.exec("DROP TABLE turn_fts");
+    fixture.db
+      .prepare("DELETE FROM schema_migrations WHERE version = ?")
+      .run("003_v1_retrieval_indexes");
+    fixture.closeDatabase();
+
+    const upgraded = openPartnerMemDatabase(fixture.path);
+    expect(
+      upgraded
+        .prepare(
+          "SELECT node_id FROM turn_fts WHERE turn_fts MATCH ?"
+        )
+        .get('"已经存在"')
+    ).toEqual({ node_id: node.node_id });
+    expect(
+      upgraded
+        .prepare("SELECT version FROM schema_migrations WHERE version = ?")
+        .get("003_v1_retrieval_indexes")
+    ).toEqual({ version: "003_v1_retrieval_indexes" });
+    upgraded.close();
+    cleanups.push(fixture.close);
   });
 
   it("rejects a database with any non-canonical owner instead of migrating it", () => {
@@ -75,7 +117,7 @@ describe("V1 schema", () => {
     cleanups.push(fixture.close);
   });
 
-  it("upgrades the PR #8 foundation by applying only the missing migration", () => {
+  it("upgrades the PR #8 foundation by applying later migrations in order", () => {
     const fixture = createTestDatabase();
     const immutableTriggers = [
       "source_object_mappings_immutable_update",
@@ -88,6 +130,14 @@ describe("V1 schema", () => {
       "explicit_reply_edges_immutable_update",
       "explicit_reply_edges_permanent"
     ];
+    fixture.db.exec("DROP TRIGGER turn_nodes_fts_insert");
+    fixture.db.exec("DROP TRIGGER turn_nodes_fts_answer_update");
+    fixture.db.exec("DROP TRIGGER turn_nodes_vector_invalidate");
+    fixture.db.exec("DROP TABLE node_vectors");
+    fixture.db.exec("DROP TABLE turn_fts");
+    fixture.db
+      .prepare("DELETE FROM schema_migrations WHERE version = ?")
+      .run("003_v1_retrieval_indexes");
     for (const trigger of immutableTriggers) {
       fixture.db.exec(`DROP TRIGGER ${trigger}`);
     }
@@ -111,6 +161,11 @@ describe("V1 schema", () => {
         )
         .get(...immutableTriggers)
     ).toEqual({ count: immutableTriggers.length });
+    expect(
+      upgraded
+        .prepare("SELECT version FROM schema_migrations WHERE version = ?")
+        .get("003_v1_retrieval_indexes")
+    ).toEqual({ version: "003_v1_retrieval_indexes" });
     upgraded.close();
     cleanups.push(fixture.close);
   });
@@ -170,6 +225,50 @@ describe("V1 schema", () => {
         .prepare("SELECT version FROM schema_migrations WHERE version = ?")
         .get("002_v1_immutability")
     ).toEqual({ version: "002_v1_immutability" });
+    recovered.close();
+    cleanups.push(fixture.close);
+  });
+
+  it("rolls back every retrieval-index statement when migration 003 fails", () => {
+    const fixture = createTestDatabase();
+    fixture.db.exec("DROP TRIGGER turn_nodes_fts_insert");
+    fixture.db.exec("DROP TRIGGER turn_nodes_fts_answer_update");
+    fixture.db.exec("DROP TRIGGER turn_nodes_vector_invalidate");
+    fixture.db.exec("DROP TABLE node_vectors");
+    fixture.db.exec("DROP TABLE turn_fts");
+    fixture.db
+      .prepare("DELETE FROM schema_migrations WHERE version = ?")
+      .run("003_v1_retrieval_indexes");
+    fixture.db.exec(
+      "CREATE TABLE node_vectors(node_id TEXT PRIMARY KEY) STRICT"
+    );
+    fixture.closeDatabase();
+
+    expect(() => openPartnerMemDatabase(fixture.path)).toThrow(
+      "table node_vectors already exists"
+    );
+    const inspect = new DatabaseSync(fixture.path);
+    expect(
+      inspect
+        .prepare(
+          "SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'turn_fts'"
+        )
+        .get()
+    ).toBeUndefined();
+    expect(
+      inspect
+        .prepare("SELECT version FROM schema_migrations WHERE version = ?")
+        .get("003_v1_retrieval_indexes")
+    ).toBeUndefined();
+    inspect.exec("DROP TABLE node_vectors");
+    inspect.close();
+
+    const recovered = openPartnerMemDatabase(fixture.path);
+    expect(
+      recovered
+        .prepare("SELECT version FROM schema_migrations WHERE version = ?")
+        .get("003_v1_retrieval_indexes")
+    ).toEqual({ version: "003_v1_retrieval_indexes" });
     recovered.close();
     cleanups.push(fixture.close);
   });

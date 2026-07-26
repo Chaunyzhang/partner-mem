@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { Buffer } from "node:buffer";
 import {
   assertSourceObjectKind,
   optionalNonEmptyString,
@@ -46,6 +47,21 @@ export interface AttachAnswerInput {
   answer_visible_at?: string | null;
   answer_display_order?: number | null;
   updated_at?: string;
+}
+
+export interface KeywordMatch {
+  node_id: string;
+  score: number;
+}
+
+export interface NodeVectorIndex {
+  node_id: string;
+  provider_id: string;
+  model: string;
+  dimensions: number;
+  content_sha256: string;
+  vector: Buffer;
+  indexed_at: string;
 }
 
 export class PartnerMemStore {
@@ -460,6 +476,206 @@ export class PartnerMemStore {
       ) as ExplicitReplyEdge | undefined;
   }
 
+  isFormalObject(input: {
+    harness_id: string;
+    object_kind: SourceObjectKind;
+    formal_id: string;
+  }): boolean {
+    return (
+      this.db
+        .prepare(
+          `SELECT 1 AS found
+           FROM source_object_mappings
+           WHERE harness_id = ? AND object_kind = ? AND formal_id = ?`
+        )
+        .get(
+          requireNonEmptyString(input.harness_id, "harness_id"),
+          assertSourceObjectKind(input.object_kind),
+          requireNonEmptyString(input.formal_id, "formal_id")
+        ) !== undefined
+    );
+  }
+
+  hasAgentConversationAccess(input: {
+    harness_id: string;
+    agent_id: string;
+    conversation_id: string;
+  }): boolean {
+    return (
+      this.db
+        .prepare(
+          `SELECT 1 AS found
+           FROM agent_conversation_access
+           WHERE harness_id = ? AND agent_id = ? AND conversation_id = ?`
+        )
+        .get(
+          requireNonEmptyString(input.harness_id, "harness_id"),
+          requireNonEmptyString(input.agent_id, "agent_id"),
+          requireNonEmptyString(input.conversation_id, "conversation_id")
+        ) !== undefined
+    );
+  }
+
+  keywordSearch(input: {
+    harness_id: string;
+    conversation_id?: string | undefined;
+    agent_id?: string | undefined;
+    fts_query?: string | undefined;
+    substring_query?: string | undefined;
+    limit: number;
+    offset: number;
+  }): KeywordMatch[] {
+    const harnessId = requireNonEmptyString(input.harness_id, "harness_id");
+    const limit = requirePositiveInteger(input.limit, "limit");
+    const offset = requireNonNegativeIntegerValue(input.offset, "offset");
+    const byConversation = input.conversation_id !== undefined;
+    if (byConversation === (input.agent_id !== undefined)) {
+      throw new TypeError(
+        "keywordSearch requires exactly one conversation_id or agent_id scope"
+      );
+    }
+    if ((input.fts_query === undefined) === (input.substring_query === undefined)) {
+      throw new TypeError(
+        "keywordSearch requires exactly one FTS or substring query"
+      );
+    }
+
+    const matchClause =
+      input.fts_query === undefined
+        ? "instr(lower(turn_fts.search_text), lower(?)) > 0"
+        : "turn_fts MATCH ?";
+    const scoreExpression =
+      input.fts_query === undefined ? "0.0" : "bm25(turn_fts)";
+    const scopeClause = byConversation
+      ? "nodes.harness_id = ? AND nodes.conversation_id = ?"
+      : `nodes.harness_id = ?
+         AND EXISTS (
+           SELECT 1
+           FROM agent_conversation_access access
+           WHERE access.harness_id = nodes.harness_id
+             AND access.agent_id = ?
+             AND access.conversation_id = nodes.conversation_id
+         )`;
+    const scopeId = byConversation
+      ? requireNonEmptyString(input.conversation_id, "conversation_id")
+      : requireNonEmptyString(input.agent_id, "agent_id");
+    const query = input.fts_query ?? input.substring_query;
+    return this.db
+      .prepare(
+        `SELECT nodes.node_id, ${scoreExpression} AS score
+         FROM turn_fts
+         INNER JOIN turn_nodes nodes
+           ON nodes.node_id = turn_fts.node_id
+         WHERE ${matchClause}
+           AND ${scopeClause}
+         ORDER BY score ASC, nodes.node_id ASC
+         LIMIT ? OFFSET ?`
+      )
+      .all(query, harnessId, scopeId, limit, offset) as KeywordMatch[];
+  }
+
+  listTurnNodesForCurrentConversation(input: {
+    harness_id: string;
+    conversation_id: string;
+  }): TurnNode[] {
+    return this.db
+      .prepare(
+        `SELECT *
+         FROM turn_nodes
+         WHERE harness_id = ? AND conversation_id = ?
+         ORDER BY node_id`
+      )
+      .all(
+        requireNonEmptyString(input.harness_id, "harness_id"),
+        requireNonEmptyString(input.conversation_id, "conversation_id")
+      ) as TurnNode[];
+  }
+
+  listTurnNodesForAgent(input: {
+    harness_id: string;
+    agent_id: string;
+  }): TurnNode[] {
+    return this.db
+      .prepare(
+        `SELECT nodes.*
+         FROM turn_nodes nodes
+         WHERE nodes.harness_id = ?
+           AND EXISTS (
+             SELECT 1
+             FROM agent_conversation_access access
+             WHERE access.harness_id = nodes.harness_id
+               AND access.agent_id = ?
+               AND access.conversation_id = nodes.conversation_id
+           )
+         ORDER BY nodes.node_id`
+      )
+      .all(
+        requireNonEmptyString(input.harness_id, "harness_id"),
+        requireNonEmptyString(input.agent_id, "agent_id")
+      ) as TurnNode[];
+  }
+
+  getNodeVector(nodeId: string): NodeVectorIndex | undefined {
+    const row = this.db
+      .prepare("SELECT * FROM node_vectors WHERE node_id = ?")
+      .get(requireNonEmptyString(nodeId, "node_id")) as
+      | (Omit<NodeVectorIndex, "vector"> & { vector: Uint8Array })
+      | undefined;
+    return row ? { ...row, vector: Buffer.from(row.vector) } : undefined;
+  }
+
+  upsertNodeVector(input: NodeVectorIndex): void {
+    this.db
+      .prepare(
+        `INSERT INTO node_vectors(
+           node_id, provider_id, model, dimensions, content_sha256, vector, indexed_at
+         ) VALUES (?, ?, ?, ?, ?, ?, ?)
+         ON CONFLICT(node_id) DO UPDATE SET
+           provider_id = excluded.provider_id,
+           model = excluded.model,
+           dimensions = excluded.dimensions,
+           content_sha256 = excluded.content_sha256,
+           vector = excluded.vector,
+           indexed_at = excluded.indexed_at`
+      )
+      .run(
+        requireNonEmptyString(input.node_id, "node_id"),
+        requireNonEmptyString(input.provider_id, "provider_id"),
+        requireNonEmptyString(input.model, "model"),
+        requirePositiveInteger(input.dimensions, "dimensions"),
+        requireNonEmptyString(input.content_sha256, "content_sha256"),
+        input.vector,
+        requireNonEmptyString(input.indexed_at, "indexed_at")
+      );
+  }
+
+  listExplicitReplyEdges(input: {
+    harness_id: string;
+    node_id: string;
+    direction: "parent" | "replies" | "both";
+  }): ExplicitReplyEdge[] {
+    const harnessId = requireNonEmptyString(input.harness_id, "harness_id");
+    const nodeId = requireNonEmptyString(input.node_id, "node_id");
+    const predicate =
+      input.direction === "parent"
+        ? "from_node_id = ?"
+        : input.direction === "replies"
+          ? "to_node_id = ?"
+          : "(from_node_id = ? OR to_node_id = ?)";
+    const parameters =
+      input.direction === "both"
+        ? [harnessId, nodeId, nodeId]
+        : [harnessId, nodeId];
+    return this.db
+      .prepare(
+        `SELECT *
+         FROM explicit_reply_edges
+         WHERE harness_id = ? AND ${predicate}
+         ORDER BY edge_id`
+      )
+      .all(...parameters) as ExplicitReplyEdge[];
+  }
+
   private requireHarness(harnessId: string): HarnessInstance {
     const harness = this.getHarness(requireNonEmptyString(harnessId, "harness_id"));
     if (!harness) throw new Error(`Unknown harness_id: ${harnessId}`);
@@ -492,4 +708,21 @@ export class PartnerMemStore {
     if (formalId === undefined || formalId === null) return null;
     return this.requireFormalObject(harnessId, kind, formalId, field);
   }
+}
+
+function requirePositiveInteger(value: unknown, field: string): number {
+  if (!Number.isInteger(value) || (value as number) < 1) {
+    throw new TypeError(`${field} must be a positive integer`);
+  }
+  return value as number;
+}
+
+function requireNonNegativeIntegerValue(
+  value: unknown,
+  field: string
+): number {
+  if (!Number.isInteger(value) || (value as number) < 0) {
+    throw new TypeError(`${field} must be a non-negative integer`);
+  }
+  return value as number;
 }

@@ -59,9 +59,11 @@
 - TypeScript `5.9.x`（中文翻译：严格类型语言）：负责共享契约、内核、runtime 和 OpenClaw 插件。
 - `@photostructure/sqlite` `2.2.x`（中文翻译：Node 的同步 SQLite 驱动）：唯一持久化进程内 owner。
 - SQLite STRICT tables（中文翻译：数据库拒绝错误字段类型的严格表）与 foreign keys（外键：保证正式 ID 关系真实存在）。
-- SQLite FTS5 `trigram` + `bm25()`：关键词检索。
-- `node_vectors`（中文翻译：每个 turn 最多一条、可全部重建的向量索引表）保存 Float32 向量；JavaScript 计算 cosine distance。
-- `EmbeddingProvider`（中文翻译：内核向量生成接口）使用 OpenAI-compatible `/v1/embeddings` HTTP 契约；测试注入固定 provider，不访问网络。
+- SQLite FTS5 `trigram` + `bm25()`：关键词检索。三个及以上 Unicode 字符通过 `MATCH + bm25()` 排序；一至两个 Unicode 字符因 SQLite trigram 不产生查询 token，改在同一可重建 FTS 内容表上做逐字 substring scan（中文翻译：只处理 tokenizer 无法表达的短查询，按 `node_id` 稳定排序，不产生第二检索 owner）。
+- `turn_fts`（中文翻译：每个 turn 一行的可重建全文索引）由 SQLite trigger 在节点插入和回答首次补入时同步更新；migration `003` 回填 PR #9 已存在的节点。
+- `turn_fts` 自带的 scope 列不是权限真相；关键词 query 必须 join `turn_nodes`，再按 node 的正式 conversation 或 `agent_conversation_access` 授权，最后才计算去重结果和截断。
+- `node_vectors`（中文翻译：每个 turn 最多一条、可全部重建的向量索引表）保存 little-endian Float32 向量、provider/model、维度与原文拼接哈希；JavaScript 做 exact cosine scan。provider 结果与已有 BLOB 都必须通过 Float32 finite/non-zero 校验，Infinity、NaN、损坏长度和非有限距离直接失败。回答首次补入时 trigger 删除旧向量，下一次 vector 查询重新生成。
+- `EmbeddingProvider`（中文翻译：内核向量生成接口）使用 OpenAI-compatible `/v1/embeddings` HTTP 契约；`timeout_ms`（中文翻译：单次向量请求的有界等待时间）默认 10 秒，到期 abort 且只让 vector Tool 返回稳定错误；测试注入固定 provider，不访问网络。
 - Vitest：TypeScript 单元、合同与端到端测试。
 - Python `unittest`：Hermes provider 插件合同测试。
 - JSONL runtime（中文翻译：Hermes Python 与唯一 Node 内核之间一行一个 JSON 请求的进程协议）；它只运输命令，不拥有业务判断。
